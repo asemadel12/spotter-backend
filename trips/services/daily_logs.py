@@ -422,6 +422,8 @@ def _build_remark(
         if end_value is not None:
             end_distance = _decimal(end_value, "remark route distance")
             route_distance = end_distance - fragment.distance_meters
+            if abs(route_distance) <= Decimal("0.01"):
+                route_distance = Decimal("0")
 
     second_of_day = _timedelta_microseconds(fragment.start - day_start)
     remark = {
