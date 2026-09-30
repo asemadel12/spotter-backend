@@ -138,3 +138,39 @@ def test_missing_location_labels_are_not_invented():
     ][0]
 
     assert remark["location"] == {"ref": "en_route", "label": "En route"}
+
+
+def test_first_driving_remark_clamps_tiny_negative_route_progress_to_zero():
+    start = datetime(2026, 1, 1, 8, tzinfo=UTC)
+    schedule = make_schedule(
+        [
+            make_schedule_event(
+                "DRIVING",
+                "DRIVING",
+                start,
+                start + timedelta(hours=1),
+                distance_meters=100,
+                location="current_location_to_pickup_location",
+                route_progress={
+                    "route_distance_traveled_meters": 99.999999999999,
+                    "route_distance_remaining_meters": 900,
+                },
+            )
+        ]
+    )
+
+    result = build_daily_logs(
+        schedule=schedule,
+        locations={
+            "current_location": {
+                "label": "Chicago, Illinois, USA",
+            }
+        },
+    )
+    remark = result["logs"][0]["remarks"][0]
+
+    assert remark["route_distance_traveled_meters"] == 0
+    assert remark["location"] == {
+        "ref": "current_location",
+        "label": "Chicago, Illinois, USA",
+    }
