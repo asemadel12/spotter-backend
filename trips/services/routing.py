@@ -166,12 +166,33 @@ def _normalize_step(step: Any) -> dict[str, Any]:
     if isinstance(step_type, bool) or not isinstance(step_type, int):
         raise RoutingServiceUnavailableError
 
+    way_points = _step_way_points(step.get("way_points"))
+
     return {
         "instruction": instruction,
         "distance_meters": _measure(step.get("distance")),
         "duration_seconds": _measure(step.get("duration")),
         "type": step_type,
+        "way_points": way_points,
     }
+
+
+def _step_way_points(value: Any) -> list[int]:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise RoutingServiceUnavailableError
+
+    start, end = value
+    if (
+        isinstance(start, bool)
+        or isinstance(end, bool)
+        or not isinstance(start, int)
+        or not isinstance(end, int)
+        or start < 0
+        or end < start
+    ):
+        raise RoutingServiceUnavailableError
+
+    return [start, end]
 
 
 def _measure(value: Any) -> int | float:
