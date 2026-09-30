@@ -1,18 +1,12 @@
-from django.utils import timezone
-from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from trips.services.exceptions import (
-    LocationNotFoundError,
-    RoutingServiceNotConfiguredError,
-    RoutingServiceUnavailableError,
-)
-from trips.services.daily_logs import DailyLogBuildError, build_daily_logs
-from trips.services.geocoding import geocode_location
-from trips.services.hos import HosPlanningError, build_hos_schedule
-from trips.services.routing import calculate_route
+from trips.application.planning import plan_trip
 
+from .errors import (
+    CONTROLLED_TRIP_PLANNING_ERRORS,
+    trip_planning_error_response,
+)
 from .serializers import TripPlanSerializer
 
 
@@ -37,95 +31,9 @@ class TripPlanView(APIView):
         serializer = TripPlanSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        locations = {}
         try:
-            for field in (
-                "current_location",
-                "pickup_location",
-                "dropoff_location",
-            ):
-                try:
-                    locations[field] = geocode_location(
-                        serializer.validated_data[field]
-                    )
-                except LocationNotFoundError:
-                    return Response(
-                        {
-                            "error": {
-                                "code": "location_not_found",
-                                "field": field,
-                                "message": (
-                                    f"Could not resolve {field.replace('_', ' ')}."
-                                ),
-                            }
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+            result = plan_trip(serializer.validated_data)
+        except CONTROLLED_TRIP_PLANNING_ERRORS as exc:
+            return trip_planning_error_response(exc)
 
-            route = calculate_route(
-                locations["current_location"],
-                locations["pickup_location"],
-                locations["dropoff_location"],
-            )
-            schedule = build_hos_schedule(
-                route=route,
-                current_cycle_used_hours=serializer.validated_data[
-                    "current_cycle_used_hours"
-                ],
-                start_datetime=timezone.now(),
-            )
-            daily_logs = build_daily_logs(
-                schedule=schedule,
-                locations=locations,
-            )
-        except RoutingServiceNotConfiguredError:
-            return Response(
-                {
-                    "error": {
-                        "code": "routing_service_not_configured",
-                        "message": "Trip routing service is not configured.",
-                    }
-                },
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-        except RoutingServiceUnavailableError:
-            return Response(
-                {
-                    "error": {
-                        "code": "routing_service_unavailable",
-                        "message": "Trip routing service is temporarily unavailable.",
-                    }
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-        except HosPlanningError:
-            return Response(
-                {
-                    "error": {
-                        "code": "trip_planning_failed",
-                        "message": "Trip schedule could not be generated.",
-                    }
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-        except DailyLogBuildError:
-            return Response(
-                {
-                    "error": {
-                        "code": "daily_log_generation_failed",
-                        "message": "Daily log sheets could not be generated.",
-                    }
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        return Response(
-            {
-                "status": "planned",
-                "trip": serializer.validated_data,
-                "locations": locations,
-                "route": route,
-                "schedule": schedule,
-                "daily_logs": daily_logs,
-            }
-        )
+        return Response(result)
