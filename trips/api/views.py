@@ -1,5 +1,14 @@
+from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from trips.services.exceptions import (
+    LocationNotFoundError,
+    RoutingServiceNotConfiguredError,
+    RoutingServiceUnavailableError,
+)
+from trips.services.geocoding import geocode_location
+from trips.services.routing import calculate_route
 
 from .serializers import TripPlanSerializer
 
@@ -25,9 +34,62 @@ class TripPlanView(APIView):
         serializer = TripPlanSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        locations = {}
+        try:
+            for field in (
+                "current_location",
+                "pickup_location",
+                "dropoff_location",
+            ):
+                try:
+                    locations[field] = geocode_location(
+                        serializer.validated_data[field]
+                    )
+                except LocationNotFoundError:
+                    return Response(
+                        {
+                            "error": {
+                                "code": "location_not_found",
+                                "field": field,
+                                "message": (
+                                    f"Could not resolve {field.replace('_', ' ')}."
+                                ),
+                            }
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            route = calculate_route(
+                locations["current_location"],
+                locations["pickup_location"],
+                locations["dropoff_location"],
+            )
+        except RoutingServiceNotConfiguredError:
+            return Response(
+                {
+                    "error": {
+                        "code": "routing_service_not_configured",
+                        "message": "Trip routing service is not configured.",
+                    }
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except RoutingServiceUnavailableError:
+            return Response(
+                {
+                    "error": {
+                        "code": "routing_service_unavailable",
+                        "message": "Trip routing service is temporarily unavailable.",
+                    }
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
         return Response(
             {
-                "status": "ready",
+                "status": "planned",
                 "trip": serializer.validated_data,
+                "locations": locations,
+                "route": route,
             }
         )
