@@ -8,6 +8,7 @@ from trips.services.exceptions import (
     RoutingServiceNotConfiguredError,
     RoutingServiceUnavailableError,
 )
+from trips.services.daily_logs import DailyLogBuildError, build_daily_logs
 from trips.services.geocoding import geocode_location
 from trips.services.hos import HosPlanningError, build_hos_schedule
 from trips.services.routing import calculate_route
@@ -73,6 +74,10 @@ class TripPlanView(APIView):
                 ],
                 start_datetime=timezone.now(),
             )
+            daily_logs = build_daily_logs(
+                schedule=schedule,
+                locations=locations,
+            )
         except RoutingServiceNotConfiguredError:
             return Response(
                 {
@@ -103,6 +108,16 @@ class TripPlanView(APIView):
                 },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+        except DailyLogBuildError:
+            return Response(
+                {
+                    "error": {
+                        "code": "daily_log_generation_failed",
+                        "message": "Daily log sheets could not be generated.",
+                    }
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
         return Response(
             {
@@ -111,5 +126,6 @@ class TripPlanView(APIView):
                 "locations": locations,
                 "route": route,
                 "schedule": schedule,
+                "daily_logs": daily_logs,
             }
         )

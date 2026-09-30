@@ -20,3 +20,10 @@ direct FMCSA requirements.
   clocks. Split-sleeper provisions are not modeled.
 - Adverse-driving provisions, short-haul exceptions, and team-driver rules are
   not modeled.
+- Daily logs consistently use the timezone offset present in the generated HOS
+  schedule. The assessment does not supply a home-terminal timezone or timezone
+  changes along the route, so the application does not infer timezone changes
+  while traveling.
+- Driver, carrier, vehicle, shipping-document, and other profile fields not
+  supplied by the assessment are not invented. They will remain blank when a
+  later sprint renders the visual log sheet.

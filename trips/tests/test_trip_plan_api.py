@@ -5,6 +5,7 @@ from unittest.mock import call, patch
 import pytest
 from rest_framework.test import APIClient
 
+from trips.services.daily_logs import DailyLogBuildError
 from trips.services.exceptions import (
     LocationNotFoundError,
     RoutingServiceNotConfiguredError,
@@ -91,12 +92,25 @@ def normalized_schedule():
     }
 
 
+@pytest.fixture
+def normalized_daily_logs():
+    return {
+        "summary": {
+            "log_count": 1,
+            "start_date": "2026-01-02",
+            "end_date": "2026-01-02",
+        },
+        "logs": [],
+    }
+
+
 def test_valid_trip_returns_planned_contract_and_orchestrates_services(
     api_client,
     valid_trip_payload,
     normalized_locations,
     normalized_route,
     normalized_schedule,
+    normalized_daily_logs,
 ):
     geocoded = list(normalized_locations.values())
     start = datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc)
@@ -110,10 +124,14 @@ def test_valid_trip_returns_planned_contract_and_orchestrates_services(
                 "trips.api.views.build_hos_schedule",
                 return_value=normalized_schedule,
             ) as scheduler:
-                with patch("trips.api.views.timezone.now", return_value=start):
-                    response = api_client.post(
-                        "/api/trips/plan/", valid_trip_payload, format="json"
-                    )
+                with patch(
+                    "trips.api.views.build_daily_logs",
+                    return_value=normalized_daily_logs,
+                ) as daily_log_builder:
+                    with patch("trips.api.views.timezone.now", return_value=start):
+                        response = api_client.post(
+                            "/api/trips/plan/", valid_trip_payload, format="json"
+                        )
 
     assert response.status_code == 200
     assert response.json() == {
@@ -122,6 +140,7 @@ def test_valid_trip_returns_planned_contract_and_orchestrates_services(
         "locations": normalized_locations,
         "route": normalized_route,
         "schedule": normalized_schedule,
+        "daily_logs": normalized_daily_logs,
     }
     assert geocode.call_args_list == [
         call("Chicago, IL"),
@@ -135,6 +154,10 @@ def test_valid_trip_returns_planned_contract_and_orchestrates_services(
         start_datetime=start,
     )
     assert scheduler.call_args.kwargs["start_datetime"].utcoffset() is not None
+    daily_log_builder.assert_called_once_with(
+        schedule=normalized_schedule,
+        locations=normalized_locations,
+    )
 
 
 @pytest.mark.parametrize(
@@ -243,9 +266,10 @@ def test_hos_planning_failure_returns_controlled_502(
                 "trips.api.views.build_hos_schedule",
                 side_effect=HosPlanningError("internal route detail"),
             ):
-                response = api_client.post(
-                    "/api/trips/plan/", valid_trip_payload, format="json"
-                )
+                with patch("trips.api.views.build_daily_logs") as daily_log_builder:
+                    response = api_client.post(
+                        "/api/trips/plan/", valid_trip_payload, format="json"
+                    )
 
     assert response.status_code == 502
     assert response.json() == {
@@ -255,6 +279,43 @@ def test_hos_planning_failure_returns_controlled_502(
         }
     }
     assert "internal route detail" not in str(response.json())
+    daily_log_builder.assert_not_called()
+
+
+def test_daily_log_failure_returns_controlled_502(
+    api_client,
+    valid_trip_payload,
+    normalized_locations,
+    normalized_route,
+    normalized_schedule,
+):
+    with patch(
+        "trips.api.views.geocode_location",
+        side_effect=list(normalized_locations.values()),
+    ):
+        with patch(
+            "trips.api.views.calculate_route", return_value=normalized_route
+        ):
+            with patch(
+                "trips.api.views.build_hos_schedule",
+                return_value=normalized_schedule,
+            ):
+                with patch(
+                    "trips.api.views.build_daily_logs",
+                    side_effect=DailyLogBuildError("private schedule detail"),
+                ):
+                    response = api_client.post(
+                        "/api/trips/plan/", valid_trip_payload, format="json"
+                    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "error": {
+            "code": "daily_log_generation_failed",
+            "message": "Daily log sheets could not be generated.",
+        }
+    }
+    assert "private schedule detail" not in str(response.json())
 
 
 def test_serializer_errors_still_return_400_without_calling_services(
@@ -284,6 +345,7 @@ def test_extra_fields_are_not_returned(
     normalized_locations,
     normalized_route,
     normalized_schedule,
+    normalized_daily_logs,
 ):
     valid_trip_payload["unexpected_field"] = "must not leak"
 
@@ -298,9 +360,13 @@ def test_extra_fields_are_not_returned(
                 "trips.api.views.build_hos_schedule",
                 return_value=normalized_schedule,
             ):
-                response = api_client.post(
-                    "/api/trips/plan/", valid_trip_payload, format="json"
-                )
+                with patch(
+                    "trips.api.views.build_daily_logs",
+                    return_value=normalized_daily_logs,
+                ):
+                    response = api_client.post(
+                        "/api/trips/plan/", valid_trip_payload, format="json"
+                    )
 
     assert response.status_code == 200
     assert "unexpected_field" not in response.json()["trip"]

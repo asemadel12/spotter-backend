@@ -1,8 +1,47 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 
 from trips.services.hos import METERS_PER_MILE
+
+
+def make_schedule_event(
+    event_type: str,
+    status: str,
+    start: datetime,
+    end: datetime,
+    *,
+    distance_meters: float = 0,
+    location: str = "en_route",
+    reason: str = "test_event",
+    route_progress: dict | None = None,
+) -> dict:
+    event = {
+        "type": event_type,
+        "status": status,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "duration_seconds": (end - start).total_seconds(),
+        "distance_meters": distance_meters,
+        "location": location,
+        "reason": reason,
+    }
+    if route_progress is not None:
+        event["route_progress"] = route_progress
+    return event
+
+
+def make_schedule(events: list[dict]) -> dict:
+    driving_distance = sum(
+        event["distance_meters"]
+        for event in events
+        if event["status"] == "DRIVING"
+    )
+    return {
+        "summary": {"total_trip_distance_meters": driving_distance},
+        "events": events,
+    }
 
 
 def make_route(
