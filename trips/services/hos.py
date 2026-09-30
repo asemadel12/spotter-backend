@@ -630,8 +630,11 @@ def build_hos_schedule(
     """Build a deterministic schedule using the assessment's HOS assumptions.
 
     Only a current 70-hour-cycle total is available, so natural rolling
-    eight-day recovery cannot be inferred. When that budget is exhausted,
-    this planner uses a 34-hour restart so a long trip can be completed.
+    eight-day recovery cannot be inferred. The assessment also omits the
+    driver's current daily clocks, so the trip starts with fresh 11-hour and
+    14-hour clocks after an assumed qualifying 10-hour rest. When the cycle
+    budget is exhausted, this planner uses a 34-hour restart so a long trip
+    can be completed.
     """
 
     if start_datetime.tzinfo is None or start_datetime.utcoffset() is None:
