@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+from decimal import Decimal
 from unittest.mock import call, patch
 
 import pytest
@@ -8,6 +10,7 @@ from trips.services.exceptions import (
     RoutingServiceNotConfiguredError,
     RoutingServiceUnavailableError,
 )
+from trips.services.hos import HosPlanningError
 
 
 @pytest.fixture
@@ -77,19 +80,40 @@ def normalized_route():
     }
 
 
+@pytest.fixture
+def normalized_schedule():
+    return {
+        "summary": {
+            "total_trip_distance_meters": 1500000,
+            "route_driving_seconds": 60000,
+        },
+        "events": [],
+    }
+
+
 def test_valid_trip_returns_planned_contract_and_orchestrates_services(
-    api_client, valid_trip_payload, normalized_locations, normalized_route
+    api_client,
+    valid_trip_payload,
+    normalized_locations,
+    normalized_route,
+    normalized_schedule,
 ):
     geocoded = list(normalized_locations.values())
+    start = datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc)
     with patch(
         "trips.api.views.geocode_location", side_effect=geocoded
     ) as geocode:
         with patch(
             "trips.api.views.calculate_route", return_value=normalized_route
         ) as route:
-            response = api_client.post(
-                "/api/trips/plan/", valid_trip_payload, format="json"
-            )
+            with patch(
+                "trips.api.views.build_hos_schedule",
+                return_value=normalized_schedule,
+            ) as scheduler:
+                with patch("trips.api.views.timezone.now", return_value=start):
+                    response = api_client.post(
+                        "/api/trips/plan/", valid_trip_payload, format="json"
+                    )
 
     assert response.status_code == 200
     assert response.json() == {
@@ -97,6 +121,7 @@ def test_valid_trip_returns_planned_contract_and_orchestrates_services(
         "trip": valid_trip_payload,
         "locations": normalized_locations,
         "route": normalized_route,
+        "schedule": normalized_schedule,
     }
     assert geocode.call_args_list == [
         call("Chicago, IL"),
@@ -104,6 +129,12 @@ def test_valid_trip_returns_planned_contract_and_orchestrates_services(
         call("Dallas, TX"),
     ]
     route.assert_called_once_with(*geocoded)
+    scheduler.assert_called_once_with(
+        route=normalized_route,
+        current_cycle_used_hours=Decimal("20"),
+        start_datetime=start,
+    )
+    assert scheduler.call_args.kwargs["start_datetime"].utcoffset() is not None
 
 
 @pytest.mark.parametrize(
@@ -152,9 +183,10 @@ def test_routing_upstream_failure_returns_502(
             "trips.api.views.calculate_route",
             side_effect=RoutingServiceUnavailableError(),
         ):
-            response = api_client.post(
-                "/api/trips/plan/", valid_trip_payload, format="json"
-            )
+            with patch("trips.api.views.build_hos_schedule") as scheduler:
+                response = api_client.post(
+                    "/api/trips/plan/", valid_trip_payload, format="json"
+                )
 
     assert response.status_code == 502
     assert response.json() == {
@@ -163,6 +195,7 @@ def test_routing_upstream_failure_returns_502(
             "message": "Trip routing service is temporarily unavailable.",
         }
     }
+    scheduler.assert_not_called()
 
 
 def test_geocoding_upstream_failure_returns_502(api_client, valid_trip_payload):
@@ -196,6 +229,34 @@ def test_missing_routing_configuration_returns_503(api_client, valid_trip_payloa
     }
 
 
+def test_hos_planning_failure_returns_controlled_502(
+    api_client, valid_trip_payload, normalized_locations, normalized_route
+):
+    with patch(
+        "trips.api.views.geocode_location",
+        side_effect=list(normalized_locations.values()),
+    ):
+        with patch(
+            "trips.api.views.calculate_route", return_value=normalized_route
+        ):
+            with patch(
+                "trips.api.views.build_hos_schedule",
+                side_effect=HosPlanningError("internal route detail"),
+            ):
+                response = api_client.post(
+                    "/api/trips/plan/", valid_trip_payload, format="json"
+                )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "error": {
+            "code": "trip_planning_failed",
+            "message": "Trip schedule could not be generated.",
+        }
+    }
+    assert "internal route detail" not in str(response.json())
+
+
 def test_serializer_errors_still_return_400_without_calling_services(
     api_client, valid_trip_payload
 ):
@@ -222,6 +283,7 @@ def test_extra_fields_are_not_returned(
     valid_trip_payload,
     normalized_locations,
     normalized_route,
+    normalized_schedule,
 ):
     valid_trip_payload["unexpected_field"] = "must not leak"
 
@@ -232,9 +294,13 @@ def test_extra_fields_are_not_returned(
         with patch(
             "trips.api.views.calculate_route", return_value=normalized_route
         ):
-            response = api_client.post(
-                "/api/trips/plan/", valid_trip_payload, format="json"
-            )
+            with patch(
+                "trips.api.views.build_hos_schedule",
+                return_value=normalized_schedule,
+            ):
+                response = api_client.post(
+                    "/api/trips/plan/", valid_trip_payload, format="json"
+                )
 
     assert response.status_code == 200
     assert "unexpected_field" not in response.json()["trip"]

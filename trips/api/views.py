@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -8,6 +9,7 @@ from trips.services.exceptions import (
     RoutingServiceUnavailableError,
 )
 from trips.services.geocoding import geocode_location
+from trips.services.hos import HosPlanningError, build_hos_schedule
 from trips.services.routing import calculate_route
 
 from .serializers import TripPlanSerializer
@@ -64,6 +66,13 @@ class TripPlanView(APIView):
                 locations["pickup_location"],
                 locations["dropoff_location"],
             )
+            schedule = build_hos_schedule(
+                route=route,
+                current_cycle_used_hours=serializer.validated_data[
+                    "current_cycle_used_hours"
+                ],
+                start_datetime=timezone.now(),
+            )
         except RoutingServiceNotConfiguredError:
             return Response(
                 {
@@ -84,6 +93,16 @@ class TripPlanView(APIView):
                 },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+        except HosPlanningError:
+            return Response(
+                {
+                    "error": {
+                        "code": "trip_planning_failed",
+                        "message": "Trip schedule could not be generated.",
+                    }
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
         return Response(
             {
@@ -91,5 +110,6 @@ class TripPlanView(APIView):
                 "trip": serializer.validated_data,
                 "locations": locations,
                 "route": route,
+                "schedule": schedule,
             }
         )
