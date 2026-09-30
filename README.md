@@ -73,6 +73,48 @@ gunicorn config.wsgi:application -c gunicorn.conf.py
 
 The hosting-provider-specific build/start commands can be wired to these commands during deployment.
 
+## Project structure
+
+```text
+config/                         # Django project/runtime configuration
+docs/
+└─ assumptions.md               # Explicit assessment/HOS assumptions
+
+trips/
+├─ api/
+│  ├─ serializers.py            # HTTP request validation
+│  ├─ errors.py                 # Controlled exception -> API response mapping
+│  ├─ urls.py                   # Public API routes
+│  └─ views.py                  # Thin HTTP transport layer
+├─ application/
+│  ├─ exceptions.py             # Use-case-level exceptions
+│  └─ planning.py               # Trip-planning orchestration/use case
+├─ services/
+│  ├─ geocoding.py              # HeiGIT/Pelias location resolution
+│  ├─ routing.py                # HGV route retrieval + normalization
+│  ├─ hos.py                    # Pure HOS scheduling engine
+│  ├─ daily_logs.py             # 24-hour ELD log builder
+│  └─ exceptions.py             # Controlled upstream routing errors
+└─ tests/
+   ├─ factories.py              # Shared deterministic route/schedule fixtures
+   ├─ test_trip_plan_api.py     # HTTP contract/error behavior
+   ├─ test_trip_planning_application.py
+   ├─ test_hos_*.py             # HOS rule/constraint coverage
+   ├─ test_daily_log_*.py       # ELD daily-log coverage
+   ├─ test_geocoding.py
+   └─ test_routing.py
+```
+
+### Layer boundaries
+
+- `api/` owns HTTP concerns only: request validation, status codes, and public error payloads.
+- `application/` coordinates the complete trip-planning use case without knowing about DRF responses.
+- `services/geocoding.py` and `services/routing.py` isolate external HeiGIT/openrouteservice behavior and normalize upstream responses.
+- `services/hos.py` owns HOS scheduling and route-progress consumption.
+- `services/daily_logs.py` converts the generated schedule into complete 24-hour ELD logs.
+- Domain engines do not call the API layer and do not depend on DRF.
+- Tests are organized by behavioral boundary rather than mirroring implementation line-for-line.
+
 ## Architecture
 
 ```text
@@ -85,7 +127,7 @@ POST /api/trips/plan/
   -> normalized JSON response
 ```
 
-Core domain services live in `trips/services/` and are independent of the HTTP layer wherever possible.
+The HTTP layer delegates to `trips/application/planning.py`, which coordinates the isolated services. HOS and daily-log engines remain independent of DRF and HTTP concerns.
 
 ## HOS modeling notes
 
