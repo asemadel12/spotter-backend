@@ -47,6 +47,7 @@ def route_payload():
                                     "distance": 1000.5,
                                     "duration": 60.25,
                                     "type": 11,
+                                    "way_points": [0, 1],
                                 }
                             ],
                         },
@@ -59,6 +60,7 @@ def route_payload():
                                     "distance": 2000,
                                     "duration": 120,
                                     "type": 6,
+                                    "way_points": [1, 2],
                                 }
                             ],
                         },
@@ -118,6 +120,7 @@ def test_route_request_and_successful_geojson_normalization(
                         "distance_meters": 1000.5,
                         "duration_seconds": 60.25,
                         "type": 11,
+                        "way_points": [0, 1],
                     }
                 ],
             },
@@ -132,6 +135,7 @@ def test_route_request_and_successful_geojson_normalization(
                         "distance_meters": 2000,
                         "duration_seconds": 120,
                         "type": 6,
+                        "way_points": [1, 2],
                     }
                 ],
             },
@@ -262,6 +266,25 @@ def test_malformed_segment_steps_raise_service_error(
         del first_segment["steps"]
     else:
         first_segment["steps"] = [{"instruction": "Missing other values"}]
+
+    with patch(
+        "trips.services.routing.httpx.post",
+        return_value=make_response(route_payload),
+    ):
+        with pytest.raises(RoutingServiceUnavailableError):
+            calculate_route(*resolved_locations)
+
+
+@pytest.mark.parametrize(
+    "way_points",
+    [None, [0], [0, 1, 2], ["0", 1], [2, 1], [-1, 1]],
+)
+@override_settings(ORS_API_KEY="test-api-key")
+def test_malformed_step_way_points_raise_service_error(
+    way_points, resolved_locations, route_payload
+):
+    first_step = route_payload["features"][0]["properties"]["segments"][0]["steps"][0]
+    first_step["way_points"] = way_points
 
     with patch(
         "trips.services.routing.httpx.post",
