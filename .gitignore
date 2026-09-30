@@ -2,6 +2,7 @@
 venv/
 __pycache__/
 *.py[cod]
+*.pyc
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -9,5 +10,9 @@ __pycache__/
 .env.*
 db.sqlite3
 db.sqlite3-*
+*.sqlite3
 *.log
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
