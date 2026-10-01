@@ -344,3 +344,34 @@ def test_forward_geocode_preserves_city_state_when_provider_supplies_it():
 
     assert result["label"] == "Dallas, Dallas County, Texas, USA"
     assert result["city_state"] == "Dallas, TX"
+
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_forward_geocode_does_not_treat_venue_name_as_city():
+    payload = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [-73.9442, 40.6782],
+                },
+                "properties": {
+                    "label": "Example Fire Station, Brooklyn, NY, USA",
+                    "name": "Example Fire Station",
+                    "region": "New York",
+                    "region_a": "NY",
+                },
+            }
+        ],
+    }
+
+    with patch(
+        "trips.services.geocoding.httpx.get",
+        return_value=make_response(payload),
+    ):
+        result = geocode_location("Example Fire Station")
+
+    assert "city_state" not in result
