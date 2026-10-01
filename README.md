@@ -33,7 +33,7 @@ API base URL: `http://127.0.0.1:8000/api`
 
 Health check: `GET /api/health/`
 
-Trip planning: `POST /api/trips/plan/`
+Trip planning: `POST /api/trips/plan/`\n\nLocation autocomplete: `GET /api/locations/autocomplete/?q=...`
 
 ## Environment variables
 
@@ -90,7 +90,7 @@ trips/
 │  ├─ exceptions.py             # Use-case-level exceptions
 │  └─ planning.py               # Trip-planning orchestration/use case
 ├─ services/
-│  ├─ geocoding.py              # HeiGIT/Pelias location resolution
+│  ├─ geocoding.py              # HeiGIT/Pelias location resolution + autocomplete
 │  ├─ routing.py                # HGV route retrieval + normalization
 │  ├─ hos.py                    # Pure HOS scheduling engine
 │  ├─ daily_logs.py             # 24-hour ELD log builder
@@ -127,7 +127,7 @@ POST /api/trips/plan/
   -> normalized JSON response
 ```
 
-The HTTP layer delegates to `trips/application/planning.py`, which coordinates the isolated services. HOS and daily-log engines remain independent of DRF and HTTP concerns.
+The HTTP layer delegates to `trips/application/planning.py`, which coordinates the isolated services. HOS and daily-log engines remain independent of DRF and HTTP concerns.\n\nLocation autocomplete is an optional UX enhancement. It is proxied through the backend so the API key never reaches the browser, is limited to U.S. results, and degrades to an empty suggestion list if the upstream autocomplete service is unavailable or not configured. Free-text trip planning remains fully functional.
 
 ## HOS modeling notes
 
