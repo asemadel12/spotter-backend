@@ -171,3 +171,38 @@ def test_driving_after_pickup_reuses_known_pickup_location_without_reverse_looku
 
     assert result["events"][2]["location_label"] == "Pickup City, OK"
     reverse.assert_not_called()
+
+
+
+def test_known_trip_location_prefers_city_state_over_full_provider_label():
+    schedule = {
+        "summary": {"total_trip_distance_meters": 1000},
+        "events": [
+            {
+                "type": "PICKUP",
+                "location": "pickup_location",
+                "distance_meters": 0,
+            }
+        ],
+    }
+    route = {
+        "distance_meters": 1000,
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [[-100.0, 30.0], [-99.0, 30.0]],
+        },
+    }
+    locations = {
+        "pickup_location": {
+            "label": "Dallas, Dallas County, Texas, USA",
+            "city_state": "Dallas, TX",
+        }
+    }
+
+    result = enrich_schedule_event_locations(
+        schedule=schedule,
+        route=route,
+        locations=locations,
+    )
+
+    assert result["events"][0]["location_label"] == "Dallas, TX"
