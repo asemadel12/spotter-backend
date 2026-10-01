@@ -1,3 +1,4 @@
+import logging
 import math
 from typing import Any, Mapping
 
@@ -8,6 +9,8 @@ from .exceptions import (
     RoutingServiceNotConfiguredError,
     RoutingServiceUnavailableError,
 )
+
+logger = logging.getLogger(__name__)
 
 DIRECTIONS_URL = (
     "https://api.heigit.org/openrouteservice/v2/directions/"
@@ -70,6 +73,12 @@ def _request_route(
         and url == DIRECTIONS_URL
         and _is_unroutable_point_response(response)
     ):
+        logger.info(
+            "ORS HGV route could not snap a point; retrying with driving-car. "
+            "status=%s body=%s",
+            response.status_code,
+            _safe_response_text(response),
+        )
         return _request_route(
             CAR_DIRECTIONS_URL,
             coordinates,
@@ -80,8 +89,26 @@ def _request_route(
     try:
         response.raise_for_status()
         return response.json()
-    except (httpx.HTTPStatusError, ValueError) as exc:
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "ORS directions request failed. url=%s status=%s body=%s",
+            url,
+            response.status_code,
+            _safe_response_text(response),
+        )
         raise RoutingServiceUnavailableError from exc
+    except ValueError as exc:
+        logger.warning(
+            "ORS directions returned invalid JSON. url=%s status=%s",
+            url,
+            response.status_code,
+        )
+        raise RoutingServiceUnavailableError from exc
+
+
+def _safe_response_text(response: httpx.Response) -> str:
+    text = response.text.replace("\n", " ").replace("\r", " ").strip()
+    return text[:500]
 
 
 def _is_unroutable_point_response(response: httpx.Response) -> bool:
