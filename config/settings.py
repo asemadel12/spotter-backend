@@ -2,6 +2,7 @@
 Django settings for the Spotter trip-planning assessment backend.
 """
 
+import os
 from pathlib import Path
 
 import environ
@@ -28,6 +29,12 @@ ALLOWED_HOSTS = _env_list(
     "ALLOWED_HOSTS",
     ["localhost", "127.0.0.1"],
 )
+
+# Render exposes the public service hostname at runtime. Trust exactly that
+# hostname without requiring a hard-coded onrender.com value in configuration.
+RENDER_EXTERNAL_HOSTNAME = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
+if RENDER_EXTERNAL_HOSTNAME and RENDER_EXTERNAL_HOSTNAME not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
 ORS_API_KEY = env("ORS_API_KEY", default="")
 
