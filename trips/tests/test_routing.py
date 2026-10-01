@@ -8,7 +8,12 @@ from trips.services.exceptions import (
     RoutingServiceNotConfiguredError,
     RoutingServiceUnavailableError,
 )
-from trips.services.routing import DIRECTIONS_URL, calculate_route
+from trips.services.routing import (
+    DIRECTIONS_URL,
+    SNAP_RADIUS_METERS,
+    SNAP_URL,
+    calculate_route,
+)
 
 
 @pytest.fixture
@@ -343,3 +348,78 @@ def test_missing_api_key_raises_configuration_error_without_http_request(
             calculate_route(*resolved_locations)
 
     post.assert_not_called()
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_route_uses_hgv_snapped_coordinates_when_available(
+    resolved_locations,
+    route_payload,
+):
+    current, pickup, dropoff = resolved_locations
+    snap_payload = {
+        "locations": [
+            {"location": [-87.6301, 41.8784], "snapped_distance": 31.2},
+            {"location": [-86.1584, 39.7687], "snapped_distance": 18.4},
+            {"location": [-96.7973, 32.7770], "snapped_distance": 22.1},
+        ]
+    }
+    snap_response = httpx.Response(
+        200,
+        json=snap_payload,
+        request=httpx.Request("POST", SNAP_URL),
+    )
+    route_response = make_response(route_payload)
+
+    with patch(
+        "trips.services.routing.httpx.post",
+        side_effect=[snap_response, route_response],
+    ) as post:
+        calculate_route(current, pickup, dropoff)
+
+    snap_call, directions_call = post.call_args_list
+    assert snap_call.args == (SNAP_URL,)
+    assert snap_call.kwargs["json"] == {
+        "locations": [
+            [-87.6298, 41.8781],
+            [-86.1581, 39.7684],
+            [-96.797, 32.7767],
+        ],
+        "radius": SNAP_RADIUS_METERS,
+    }
+    assert directions_call.args == (DIRECTIONS_URL,)
+    assert directions_call.kwargs["json"] == {
+        "coordinates": [
+            [-87.6301, 41.8784],
+            [-86.1584, 39.7687],
+            [-96.7973, 32.777],
+        ],
+        "instructions": True,
+    }
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_snap_failure_falls_back_to_original_coordinates(
+    resolved_locations,
+    route_payload,
+):
+    current, pickup, dropoff = resolved_locations
+    snap_failure = httpx.Response(
+        503,
+        json={"error": "snap unavailable"},
+        request=httpx.Request("POST", SNAP_URL),
+    )
+    route_response = make_response(route_payload)
+
+    with patch(
+        "trips.services.routing.httpx.post",
+        side_effect=[snap_failure, route_response],
+    ) as post:
+        result = calculate_route(current, pickup, dropoff)
+
+    assert result["distance_meters"] == route_payload["features"][0]["properties"]["summary"]["distance"]
+    directions_call = post.call_args_list[1]
+    assert directions_call.kwargs["json"]["coordinates"] == [
+        [-87.6298, 41.8781],
+        [-86.1581, 39.7684],
+        [-96.797, 32.7767],
+    ]
