@@ -3,6 +3,7 @@ from unittest.mock import patch
 from trips.services.exceptions import RoutingServiceUnavailableError
 from trips.services.route_locations import (
     coordinate_along_route,
+    enrich_daily_log_locations,
     enrich_schedule_event_locations,
 )
 
@@ -253,3 +254,111 @@ def test_known_trip_location_prefers_city_state_over_full_provider_label():
     )
 
     assert result["events"][0]["location_label"] == "Dallas, TX"
+
+
+
+def test_daily_log_midnight_boundaries_use_exact_route_positions():
+    daily_logs = {
+        "logs": [
+            {
+                "remarks": [
+                    {
+                        "event_type": "DRIVING",
+                        "route_distance_traveled_meters": 600,
+                        "location": {"ref": "en_route", "label": "Old Start"},
+                    },
+                    {
+                        "event_type": "BREAK",
+                        "route_distance_traveled_meters": 800,
+                        "location": {"ref": "en_route", "label": "En route"},
+                    },
+                ],
+                "events": [
+                    {
+                        "type": "DRIVING",
+                        "distance_meters": 300,
+                        "route_progress": {
+                            "route_distance_traveled_meters": 900,
+                        },
+                    }
+                ],
+            }
+        ]
+    }
+    route = {
+        "distance_meters": 1000,
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [[-100.0, 30.0], [-99.0, 30.0]],
+        },
+    }
+
+    with patch(
+        "trips.services.route_locations.reverse_geocode_city_state",
+        side_effect=["Midnight City, OK", "Break City, TX", "End City, TX"],
+    ):
+        result = enrich_daily_log_locations(
+            daily_logs=daily_logs,
+            route=route,
+        )
+
+    log = result["logs"][0]
+    assert log["remarks"][0]["location"]["label"] == "Midnight City, OK"
+    assert log["remarks"][1]["location"]["label"] == "Break City, TX"
+    assert log["from_location_label"] == "Midnight City, OK"
+    assert log["to_location_label"] == "End City, TX"
+
+
+def test_daily_log_boundary_enrichment_reuses_known_route_endpoints():
+    daily_logs = {
+        "logs": [
+            {
+                "remarks": [
+                    {
+                        "event_type": "DRIVING",
+                        "route_distance_traveled_meters": 0,
+                        "location": {"ref": "en_route", "label": "En route"},
+                    },
+                    {
+                        "event_type": "DROPOFF",
+                        "route_distance_traveled_meters": 1000,
+                        "location": {
+                            "ref": "dropoff_location",
+                            "label": "Dallas, TX",
+                        },
+                    },
+                ],
+                "events": [
+                    {
+                        "type": "DROPOFF",
+                        "distance_meters": 0,
+                    }
+                ],
+            }
+        ]
+    }
+    route = {
+        "distance_meters": 1000,
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [[-100.0, 30.0], [-99.0, 30.0]],
+        },
+    }
+    locations = {
+        "current_location": {"label": "Chicago, IL"},
+        "dropoff_location": {"label": "Dallas, TX"},
+    }
+
+    with patch(
+        "trips.services.route_locations.reverse_geocode_city_state"
+    ) as reverse:
+        result = enrich_daily_log_locations(
+            daily_logs=daily_logs,
+            route=route,
+            locations=locations,
+        )
+
+    log = result["logs"][0]
+    assert log["from_location_label"] == "Chicago, IL"
+    assert log["to_location_label"] == "Dallas, TX"
+    reverse.assert_not_called()
