@@ -505,3 +505,46 @@ def test_reverse_geocode_broad_fallback_does_not_use_road_name_as_city():
             )
             is None
         )
+
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_reverse_geocode_uses_county_state_when_rural_feature_has_no_city():
+    primary = httpx.Response(
+        200,
+        json={"type": "FeatureCollection", "features": []},
+        request=httpx.Request("GET", GEOCODING_REVERSE_URL),
+    )
+    fallback = httpx.Response(
+        200,
+        json={
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [-96.2, 33.1],
+                    },
+                    "properties": {
+                        "layer": "street",
+                        "name": "County Road 2100",
+                        "county": "Hunt County",
+                        "region_a": "TX",
+                    },
+                }
+            ],
+        },
+        request=httpx.Request("GET", GEOCODING_REVERSE_URL),
+    )
+
+    with patch(
+        "trips.services.geocoding.httpx.get",
+        side_effect=[primary, fallback],
+    ):
+        result = reverse_geocode_city_state(
+            latitude=33.1,
+            longitude=-96.2,
+        )
+
+    assert result == "Hunt County, TX"
