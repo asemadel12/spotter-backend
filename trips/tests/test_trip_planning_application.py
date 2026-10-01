@@ -104,13 +104,17 @@ def test_plan_trip_orchestrates_services_in_order(
                 return_value=schedule,
             ) as scheduler:
                 with patch(
-                    "trips.application.planning.build_daily_logs",
-                    return_value=daily_logs,
-                ) as daily_log_builder:
-                    result = plan_trip(
-                        validated_trip,
-                        start_datetime=start,
-                    )
+                    "trips.application.planning.enrich_schedule_event_locations",
+                    return_value=schedule,
+                ) as location_enricher:
+                    with patch(
+                        "trips.application.planning.build_daily_logs",
+                        return_value=daily_logs,
+                    ) as daily_log_builder:
+                        result = plan_trip(
+                            validated_trip,
+                            start_datetime=start,
+                        )
 
     assert geocode.call_args_list == [
         call("Chicago, IL"),
@@ -122,6 +126,11 @@ def test_plan_trip_orchestrates_services_in_order(
         route=route,
         current_cycle_used_hours=Decimal("20"),
         start_datetime=start,
+    )
+    location_enricher.assert_called_once_with(
+        schedule=schedule,
+        route=route,
+        locations=locations,
     )
     daily_log_builder.assert_called_once_with(
         schedule=schedule,
@@ -159,14 +168,18 @@ def test_plan_trip_uses_timezone_aware_now_when_start_is_not_supplied(
                 return_value=schedule,
             ) as scheduler:
                 with patch(
-                    "trips.application.planning.build_daily_logs",
-                    return_value=daily_logs,
+                    "trips.application.planning.enrich_schedule_event_locations",
+                    return_value=schedule,
                 ):
                     with patch(
-                        "trips.application.planning.timezone.now",
-                        return_value=now,
+                        "trips.application.planning.build_daily_logs",
+                        return_value=daily_logs,
                     ):
-                        plan_trip(validated_trip)
+                        with patch(
+                            "trips.application.planning.timezone.now",
+                            return_value=now,
+                        ):
+                            plan_trip(validated_trip)
 
     assert scheduler.call_args.kwargs["start_datetime"] == now
     assert scheduler.call_args.kwargs["start_datetime"].utcoffset() is not None
