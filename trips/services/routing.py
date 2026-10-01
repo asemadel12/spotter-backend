@@ -13,6 +13,8 @@ DIRECTIONS_URL = (
     "https://api.heigit.org/openrouteservice/v2/directions/"
     "driving-hgv/geojson"
 )
+SNAP_URL = "https://api.heigit.org/openrouteservice/v2/snap/driving-hgv/json"
+SNAP_RADIUS_METERS = 2000
 REQUEST_TIMEOUT = httpx.Timeout(20.0, connect=5.0)
 LEG_NAMES = (
     ("current_location", "pickup_location"),
@@ -31,11 +33,12 @@ def calculate_route(
         _location_coordinates(pickup_location),
         _location_coordinates(dropoff_location),
     ]
+    routable_coordinates = _snap_coordinates_for_hgv(coordinates, api_key)
 
     try:
         response = httpx.post(
             DIRECTIONS_URL,
-            json={"coordinates": coordinates, "instructions": True},
+            json={"coordinates": routable_coordinates, "instructions": True},
             headers={"Authorization": api_key},
             timeout=REQUEST_TIMEOUT,
         )
@@ -47,6 +50,66 @@ def calculate_route(
         raise RoutingServiceUnavailableError from exc
 
     return _normalize_route(payload)
+
+
+def _snap_coordinates_for_hgv(
+    coordinates: list[list[float]],
+    api_key: str,
+) -> list[list[float]]:
+    """Best-effort snap geocoded points to the HGV road network.
+
+    Snapping is an enhancement, not a dependency. If the upstream snap
+    service fails or returns unusable data, directions still receives the
+    original geocoded coordinates.
+    """
+    try:
+        response = httpx.post(
+            SNAP_URL,
+            json={
+                "locations": coordinates,
+                "radius": SNAP_RADIUS_METERS,
+            },
+            headers={"Authorization": api_key},
+            timeout=REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (
+        httpx.TimeoutException,
+        httpx.RequestError,
+        httpx.HTTPStatusError,
+        ValueError,
+    ):
+        return coordinates
+
+    if not isinstance(payload, dict):
+        return coordinates
+
+    locations = payload.get("locations")
+    if not isinstance(locations, list) or len(locations) != len(coordinates):
+        return coordinates
+
+    snapped: list[list[float]] = []
+    for original, item in zip(coordinates, locations):
+        if not isinstance(item, dict):
+            snapped.append(original)
+            continue
+
+        location = item.get("location")
+        if not isinstance(location, (list, tuple)) or len(location) < 2:
+            snapped.append(original)
+            continue
+
+        try:
+            longitude = _coordinate_value(location[0], minimum=-180, maximum=180)
+            latitude = _coordinate_value(location[1], minimum=-90, maximum=90)
+        except RoutingServiceUnavailableError:
+            snapped.append(original)
+            continue
+
+        snapped.append([longitude, latitude])
+
+    return snapped
 
 
 def _get_api_key() -> str:
