@@ -109,13 +109,23 @@ def test_location_not_found_returns_field_specific_400(
     }
 
 
+@pytest.mark.parametrize(
+    ("field", "label"),
+    [
+        ("current_location", "current location"),
+        ("pickup_location", "pickup location"),
+        ("dropoff_location", "drop-off location"),
+    ],
+)
 def test_too_broad_location_returns_field_specific_400(
+    field,
+    label,
     api_client,
     valid_trip_payload,
 ):
     with patch(
         "trips.api.views.plan_trip",
-        side_effect=TripLocationTooBroadError("dropoff_location"),
+        side_effect=TripLocationTooBroadError(field),
     ):
         response = api_client.post(
             "/api/trips/plan/",
@@ -127,8 +137,8 @@ def test_too_broad_location_returns_field_specific_400(
     assert response.json() == {
         "error": {
             "code": "location_too_broad",
-            "field": "dropoff_location",
-            "message": "Use a city, street, or full address for drop-off location.",
+            "field": field,
+            "message": f"Use a city, street, or full address for {label}.",
         }
     }
 
