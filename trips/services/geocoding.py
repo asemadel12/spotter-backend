@@ -232,10 +232,17 @@ def _feature_city_state(feature: dict[str, Any]) -> str | None:
     if not isinstance(properties, dict):
         raise RoutingServiceUnavailableError
 
+    layer = properties.get("layer")
+    layer_name = (
+        properties.get("name")
+        if layer in {"locality", "localadmin", "borough"}
+        else None
+    )
     city = _first_non_blank(
         properties.get("locality"),
         properties.get("localadmin"),
         properties.get("borough"),
+        layer_name,
     )
     state = _first_non_blank(
         properties.get("region_a"),
