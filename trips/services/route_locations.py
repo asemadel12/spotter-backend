@@ -47,6 +47,7 @@ def enrich_schedule_event_locations(
 
     cumulative_distance = 0.0
     reverse_cache: dict[tuple[float, float], str | None] = {}
+    reverse_available = True
     last_route_label: str | None = _known_location_label(
         locations,
         "current_location",
@@ -95,7 +96,7 @@ def enrich_schedule_event_locations(
                 if coordinate is not None:
                     longitude, latitude = coordinate
                     cache_key = (round(longitude, 5), round(latitude, 5))
-                    if cache_key not in reverse_cache:
+                    if cache_key not in reverse_cache and reverse_available:
                         try:
                             reverse_cache[cache_key] = reverse_geocode_city_state(
                                 latitude=latitude,
@@ -103,12 +104,12 @@ def enrich_schedule_event_locations(
                             )
                         except RoutingServiceError:
                             logger.info(
-                                "Reverse geocoding unavailable for ELD remark "
-                                "coordinate=%s",
-                                coordinate,
+                                "Reverse geocoding unavailable for ELD remarks; "
+                                "skipping remaining reverse lookups for this trip."
                             )
                             reverse_cache[cache_key] = None
-                    label = reverse_cache[cache_key]
+                            reverse_available = False
+                    label = reverse_cache.get(cache_key)
                     if label:
                         event["location_label"] = label
                         last_route_label = label
