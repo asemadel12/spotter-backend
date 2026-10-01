@@ -22,7 +22,9 @@ CAR_DIRECTIONS_URL = (
     "https://api.heigit.org/openrouteservice/v2/directions/"
     "driving-car/geojson"
 )
-SNAP_RADIUS_METERS = 20000
+SNAP_RADIUS_METERS = 350
+NEARBY_SEARCH_DISTANCES_KM = (0.5, 1, 2, 4, 8, 16)
+NEARBY_SEARCH_BEARINGS_DEGREES = (0, 45, 90, 135, 180, 225, 270, 315)
 REQUEST_TIMEOUT = httpx.Timeout(20.0, connect=5.0)
 LEG_NAMES = (
     ("current_location", "pickup_location"),
@@ -158,16 +160,54 @@ def _snap_coordinates(
 ) -> list[list[float]]:
     """Best-effort snap geocoded points to the selected road network.
 
-    City/locality geocoders often return a centroid rather than a point on a
-    road. A wider snap search turns that centroid into a routable waypoint.
-    If snapping fails, directions still receives the original coordinate.
+    Public ORS directions only searches a small radius around each waypoint.
+    City geocoders can return a centroid far from a road, so a failed direct
+    snap is followed by a bounded search of nearby candidate points. The
+    selected result is still an ORS-snapped road coordinate.
     """
+    locations = _request_snap(
+        snap_url,
+        coordinates,
+        api_key,
+        radius=SNAP_RADIUS_METERS,
+    )
+    if locations is None:
+        return coordinates
+
+    snapped: list[list[float]] = []
+    for index, (original, item) in enumerate(zip(coordinates, locations)):
+        normalized = _snap_location(item)
+        if normalized is not None:
+            snapped.append(normalized)
+            continue
+
+        logger.info(
+            "ORS direct snap found no routable edge. url=%s point_index=%s "
+            "coordinate=%s radius=%sm; searching nearby candidates.",
+            snap_url,
+            index,
+            original,
+            SNAP_RADIUS_METERS,
+        )
+        nearby = _snap_nearby_coordinate(original, api_key, snap_url=snap_url)
+        snapped.append(nearby or original)
+
+    return snapped
+
+
+def _request_snap(
+    snap_url: str,
+    coordinates: list[list[float]],
+    api_key: str,
+    *,
+    radius: int,
+) -> list[Any] | None:
     try:
         response = httpx.post(
             snap_url,
             json={
                 "locations": coordinates,
-                "radius": SNAP_RADIUS_METERS,
+                "radius": radius,
             },
             headers={"Authorization": api_key},
             timeout=REQUEST_TIMEOUT,
@@ -181,46 +221,89 @@ def _snap_coordinates(
             response.status_code,
             _safe_response_text(response),
         )
-        return coordinates
+        return None
     except (httpx.TimeoutException, httpx.RequestError, ValueError):
-        return coordinates
+        return None
 
     if not isinstance(payload, dict):
-        return coordinates
+        return None
 
     locations = payload.get("locations")
     if not isinstance(locations, list) or len(locations) != len(coordinates):
-        return coordinates
+        return None
 
-    snapped: list[list[float]] = []
-    for index, (original, item) in enumerate(zip(coordinates, locations)):
-        if not isinstance(item, dict):
-            logger.info(
-                "ORS snap found no routable edge. url=%s point_index=%s "
-                "coordinate=%s radius=%sm",
-                snap_url,
-                index,
-                original,
-                SNAP_RADIUS_METERS,
+    return locations
+
+
+def _snap_nearby_coordinate(
+    original: list[float],
+    api_key: str,
+    *,
+    snap_url: str,
+) -> list[float] | None:
+    candidates = _nearby_candidates(original)
+    locations = _request_snap(
+        snap_url,
+        candidates,
+        api_key,
+        radius=SNAP_RADIUS_METERS,
+    )
+    if locations is None:
+        return None
+
+    for item in locations:
+        normalized = _snap_location(item)
+        if normalized is not None:
+            return normalized
+
+    logger.info(
+        "ORS nearby snap search found no routable edge. url=%s coordinate=%s "
+        "max_search_distance_km=%s",
+        snap_url,
+        original,
+        NEARBY_SEARCH_DISTANCES_KM[-1],
+    )
+    return None
+
+
+def _nearby_candidates(original: list[float]) -> list[list[float]]:
+    longitude, latitude = original
+    latitude_radians = math.radians(latitude)
+    longitude_scale = max(math.cos(latitude_radians), 0.1)
+
+    candidates: list[list[float]] = []
+    for distance_km in NEARBY_SEARCH_DISTANCES_KM:
+        for bearing_degrees in NEARBY_SEARCH_BEARINGS_DEGREES:
+            bearing = math.radians(bearing_degrees)
+            latitude_delta = (distance_km / 111.32) * math.sin(bearing)
+            longitude_delta = (
+                distance_km / (111.32 * longitude_scale)
+            ) * math.cos(bearing)
+            candidates.append(
+                [
+                    longitude + longitude_delta,
+                    latitude + latitude_delta,
+                ]
             )
-            snapped.append(original)
-            continue
 
-        location = item.get("location")
-        if not isinstance(location, (list, tuple)) or len(location) < 2:
-            snapped.append(original)
-            continue
+    return candidates
 
-        try:
-            longitude = _coordinate_value(location[0], minimum=-180, maximum=180)
-            latitude = _coordinate_value(location[1], minimum=-90, maximum=90)
-        except RoutingServiceUnavailableError:
-            snapped.append(original)
-            continue
 
-        snapped.append([longitude, latitude])
+def _snap_location(item: Any) -> list[float] | None:
+    if not isinstance(item, dict):
+        return None
 
-    return snapped
+    location = item.get("location")
+    if not isinstance(location, (list, tuple)) or len(location) < 2:
+        return None
+
+    try:
+        longitude = _coordinate_value(location[0], minimum=-180, maximum=180)
+        latitude = _coordinate_value(location[1], minimum=-90, maximum=90)
+    except RoutingServiceUnavailableError:
+        return None
+
+    return [longitude, latitude]
 
 
 def _get_api_key() -> str:
