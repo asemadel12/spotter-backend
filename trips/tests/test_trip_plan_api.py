@@ -100,7 +100,11 @@ def test_location_not_found_returns_field_specific_400(
         "error": {
             "code": "location_not_found",
             "field": field,
-            "message": f"Could not resolve {field.replace('_', ' ')}.",
+            "message": (
+                "Could not resolve drop-off location."
+                if field == "dropoff_location"
+                else f"Could not resolve {field.replace('_', ' ')}."
+            ),
         }
     }
 
@@ -124,7 +128,7 @@ def test_too_broad_location_returns_field_specific_400(
         "error": {
             "code": "location_too_broad",
             "field": "dropoff_location",
-            "message": "Use a city, street, or full address for dropoff location.",
+            "message": "Use a city, street, or full address for drop-off location.",
         }
     }
 
