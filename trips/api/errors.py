@@ -30,7 +30,7 @@ def trip_planning_error_response(exc: Exception) -> Response:
                 "error": {
                     "code": "location_not_found",
                     "field": exc.field,
-                    "message": f"Could not resolve {exc.field.replace('_', ' ')}.",
+                    "message": f"Could not resolve {_field_label(exc.field)}.",
                 }
             },
             status=status.HTTP_400_BAD_REQUEST,
@@ -44,7 +44,7 @@ def trip_planning_error_response(exc: Exception) -> Response:
                     "field": exc.field,
                     "message": (
                         f"Use a city, street, or full address for "
-                        f"{exc.field.replace('_', ' ')}."
+                        f"{_field_label(exc.field)}."
                     ),
                 }
             },
@@ -80,6 +80,15 @@ def trip_planning_error_response(exc: Exception) -> Response:
         )
 
     raise TypeError(f"Unsupported trip-planning error: {type(exc).__name__}")
+
+
+def _field_label(field: str) -> str:
+    labels = {
+        "current_location": "current location",
+        "pickup_location": "pickup location",
+        "dropoff_location": "drop-off location",
+    }
+    return labels.get(field, field.replace("_", " "))
 
 
 def _error_response(*, code: str, message: str, status_code: int) -> Response:
