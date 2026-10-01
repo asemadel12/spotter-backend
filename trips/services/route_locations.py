@@ -117,6 +117,147 @@ def enrich_schedule_event_locations(
     return result
 
 
+
+def enrich_daily_log_locations(
+    *,
+    daily_logs: Mapping[str, Any],
+    route: Mapping[str, Any],
+    locations: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Resolve exact daily-log route positions to city/state labels.
+
+    Schedule events can cross midnight. Daily-log fragments therefore need
+    location resolution from their own route-distance position rather than
+    inheriting the source event's starting location.
+    """
+    result = deepcopy(dict(daily_logs))
+    logs = result.get("logs")
+    if not isinstance(logs, list):
+        return result
+
+    coordinates = _route_coordinates(route)
+    total_route_distance = _positive_number(route.get("distance_meters"))
+    if coordinates is None or total_route_distance is None:
+        return result
+
+    reverse_cache: dict[tuple[float, float], str | None] = {}
+    reverse_available = True
+
+    def resolve_distance(distance_value: Any) -> str | None:
+        nonlocal reverse_available
+
+        distance = _non_negative_number(distance_value)
+        if distance is None:
+            return None
+        distance = min(total_route_distance, distance)
+
+        if distance <= 0.01:
+            return _known_location_label(locations, "current_location")
+        if abs(total_route_distance - distance) <= 0.01:
+            return _known_location_label(locations, "dropoff_location")
+
+        coordinate = coordinate_along_route(
+            coordinates,
+            total_route_distance=total_route_distance,
+            distance_meters=distance,
+        )
+        if coordinate is None:
+            return None
+
+        cache_key = (round(coordinate[0], 5), round(coordinate[1], 5))
+        if cache_key not in reverse_cache and reverse_available:
+            try:
+                reverse_cache[cache_key] = reverse_geocode_city_state(
+                    latitude=coordinate[1],
+                    longitude=coordinate[0],
+                )
+            except RoutingServiceError:
+                logger.info(
+                    "Reverse geocoding unavailable for daily ELD locations; "
+                    "skipping remaining reverse lookups for this trip."
+                )
+                reverse_cache[cache_key] = None
+                reverse_available = False
+        return reverse_cache.get(cache_key)
+
+    for log in logs:
+        if not isinstance(log, dict):
+            continue
+
+        remarks = log.get("remarks")
+        if isinstance(remarks, list):
+            for remark in remarks:
+                if not isinstance(remark, dict):
+                    continue
+                location = remark.get("location")
+                route_distance = remark.get("route_distance_traveled_meters")
+                if (
+                    isinstance(location, dict)
+                    and location.get("ref") == "en_route"
+                    and route_distance is not None
+                ):
+                    label = resolve_distance(route_distance)
+                    if label:
+                        location["label"] = label
+
+        start_distance = _daily_log_start_distance(log)
+        end_distance = _daily_log_end_distance(log)
+
+        start_label = resolve_distance(start_distance)
+        end_label = resolve_distance(end_distance)
+
+        if start_label:
+            log["from_location_label"] = start_label
+        elif isinstance(remarks, list) and remarks:
+            first_location = remarks[0].get("location")
+            if isinstance(first_location, Mapping):
+                first_label = first_location.get("label")
+                if isinstance(first_label, str) and first_label.strip():
+                    log["from_location_label"] = first_label.strip()
+
+        if end_label:
+            log["to_location_label"] = end_label
+        elif isinstance(remarks, list) and remarks:
+            last_location = remarks[-1].get("location")
+            if isinstance(last_location, Mapping):
+                last_label = last_location.get("label")
+                if isinstance(last_label, str) and last_label.strip():
+                    log["to_location_label"] = last_label.strip()
+
+    return result
+
+
+def _daily_log_start_distance(log: Mapping[str, Any]) -> float | None:
+    remarks = log.get("remarks")
+    if isinstance(remarks, list) and remarks:
+        first = remarks[0]
+        if isinstance(first, Mapping):
+            value = first.get("route_distance_traveled_meters")
+            if value is not None:
+                return _non_negative_number(value)
+    return None
+
+
+def _daily_log_end_distance(log: Mapping[str, Any]) -> float | None:
+    events = log.get("events")
+    if isinstance(events, list) and events:
+        last = events[-1]
+        if isinstance(last, Mapping):
+            progress = last.get("route_progress")
+            if isinstance(progress, Mapping):
+                value = progress.get("route_distance_traveled_meters")
+                if value is not None:
+                    return _non_negative_number(value)
+
+    remarks = log.get("remarks")
+    if isinstance(remarks, list) and remarks:
+        last = remarks[-1]
+        if isinstance(last, Mapping):
+            value = last.get("route_distance_traveled_meters")
+            if value is not None:
+                return _non_negative_number(value)
+    return None
+
 def coordinate_along_route(
     coordinates: list[list[float]],
     *,
