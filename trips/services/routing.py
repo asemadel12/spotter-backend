@@ -174,12 +174,15 @@ def _snap_coordinates(
         )
         response.raise_for_status()
         payload = response.json()
-    except (
-        httpx.TimeoutException,
-        httpx.RequestError,
-        httpx.HTTPStatusError,
-        ValueError,
-    ):
+    except httpx.HTTPStatusError:
+        logger.warning(
+            "ORS snap request failed. url=%s status=%s body=%s",
+            snap_url,
+            response.status_code,
+            _safe_response_text(response),
+        )
+        return coordinates
+    except (httpx.TimeoutException, httpx.RequestError, ValueError):
         return coordinates
 
     if not isinstance(payload, dict):
@@ -190,8 +193,16 @@ def _snap_coordinates(
         return coordinates
 
     snapped: list[list[float]] = []
-    for original, item in zip(coordinates, locations):
+    for index, (original, item) in enumerate(zip(coordinates, locations)):
         if not isinstance(item, dict):
+            logger.info(
+                "ORS snap found no routable edge. url=%s point_index=%s "
+                "coordinate=%s radius=%sm",
+                snap_url,
+                index,
+                original,
+                SNAP_RADIUS_METERS,
+            )
             snapped.append(original)
             continue
 
