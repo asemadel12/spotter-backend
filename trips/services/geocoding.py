@@ -48,14 +48,18 @@ def geocode_location(location: str) -> dict[str, str | float]:
     feature = _first_feature(payload)
     _ensure_trip_location_is_specific(feature)
     label = _feature_label(feature)
+    city_state = _feature_city_state(feature)
     longitude, latitude = _feature_coordinates(feature)
 
-    return {
+    result: dict[str, str | float] = {
         "input": location,
         "label": label,
         "latitude": latitude,
         "longitude": longitude,
     }
+    if city_state is not None:
+        result["city_state"] = city_state
+    return result
 
 
 def autocomplete_locations(
@@ -221,6 +225,28 @@ def _feature_label(feature: dict[str, Any]) -> str:
         raise RoutingServiceUnavailableError
 
     return label
+
+
+def _feature_city_state(feature: dict[str, Any]) -> str | None:
+    properties = feature.get("properties")
+    if not isinstance(properties, dict):
+        raise RoutingServiceUnavailableError
+
+    city = _first_non_blank(
+        properties.get("locality"),
+        properties.get("localadmin"),
+        properties.get("borough"),
+        properties.get("name"),
+    )
+    state = _first_non_blank(
+        properties.get("region_a"),
+        properties.get("region"),
+    )
+    if city and state:
+        return f"{city}, {state}"
+    if city:
+        return city
+    return None
 
 
 def _feature_coordinates(feature: dict[str, Any]) -> tuple[float, float]:
