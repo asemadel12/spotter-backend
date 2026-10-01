@@ -236,7 +236,6 @@ def _feature_city_state(feature: dict[str, Any]) -> str | None:
         properties.get("locality"),
         properties.get("localadmin"),
         properties.get("borough"),
-        properties.get("name"),
     )
     state = _first_non_blank(
         properties.get("region_a"),
