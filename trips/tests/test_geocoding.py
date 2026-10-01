@@ -312,3 +312,35 @@ def test_reverse_geocode_upstream_failure_is_controlled():
                 latitude=35.0,
                 longitude=-100.0,
             )
+
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_forward_geocode_preserves_city_state_when_provider_supplies_it():
+    payload = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [-96.797, 32.7767],
+                },
+                "properties": {
+                    "label": "Dallas, Dallas County, Texas, USA",
+                    "locality": "Dallas",
+                    "region": "Texas",
+                    "region_a": "TX",
+                },
+            }
+        ],
+    }
+
+    with patch(
+        "trips.services.geocoding.httpx.get",
+        return_value=make_response(payload),
+    ):
+        result = geocode_location("Dallas, TX")
+
+    assert result["label"] == "Dallas, Dallas County, Texas, USA"
+    assert result["city_state"] == "Dallas, TX"
