@@ -14,6 +14,7 @@ from trips.services.exceptions import LocationNotFoundError, LocationTooBroadErr
 from trips.services.geocoding import geocode_location
 from trips.services.hos import build_hos_schedule
 from trips.services.routing import calculate_route
+from trips.services.route_locations import enrich_schedule_event_locations
 
 LOCATION_FIELDS = (
     "current_location",
@@ -38,6 +39,11 @@ def plan_trip(
         route=route,
         current_cycle_used_hours=validated_data["current_cycle_used_hours"],
         start_datetime=start_datetime or timezone.now(),
+    )
+    schedule = enrich_schedule_event_locations(
+        schedule=schedule,
+        route=route,
+        locations=locations,
     )
     daily_logs = build_daily_logs(
         schedule=schedule,
