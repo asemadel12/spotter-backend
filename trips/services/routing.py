@@ -67,8 +67,8 @@ def _request_route(
 
     if (
         allow_profile_fallback
-        and response.status_code == 400
         and url == DIRECTIONS_URL
+        and _is_unroutable_point_response(response)
     ):
         return _request_route(
             CAR_DIRECTIONS_URL,
@@ -82,6 +82,35 @@ def _request_route(
         return response.json()
     except (httpx.HTTPStatusError, ValueError) as exc:
         raise RoutingServiceUnavailableError from exc
+
+
+def _is_unroutable_point_response(response: httpx.Response) -> bool:
+    if response.status_code not in {400, 404}:
+        return False
+
+    try:
+        payload = response.json()
+    except ValueError:
+        return False
+
+    if not isinstance(payload, dict):
+        return False
+
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        return False
+
+    if error.get("code") == 2010:
+        return True
+
+    message = error.get("message")
+    return (
+        isinstance(message, str)
+        and (
+            "Could not find point" in message
+            or "Could not find routable point" in message
+        )
+    )
 
 
 def _snap_coordinates_for_hgv(
