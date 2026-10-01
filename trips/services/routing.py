@@ -16,12 +16,13 @@ DIRECTIONS_URL = (
     "https://api.heigit.org/openrouteservice/v2/directions/"
     "driving-hgv/geojson"
 )
-SNAP_URL = "https://api.heigit.org/openrouteservice/v2/snap/driving-hgv/json"
+HGV_SNAP_URL = "https://api.heigit.org/openrouteservice/v2/snap/driving-hgv/json"
+CAR_SNAP_URL = "https://api.heigit.org/openrouteservice/v2/snap/driving-car/json"
 CAR_DIRECTIONS_URL = (
     "https://api.heigit.org/openrouteservice/v2/directions/"
     "driving-car/geojson"
 )
-SNAP_RADIUS_METERS = 350
+SNAP_RADIUS_METERS = 5000
 REQUEST_TIMEOUT = httpx.Timeout(20.0, connect=5.0)
 LEG_NAMES = (
     ("current_location", "pickup_location"),
@@ -40,7 +41,11 @@ def calculate_route(
         _location_coordinates(pickup_location),
         _location_coordinates(dropoff_location),
     ]
-    routable_coordinates = _snap_coordinates_for_hgv(coordinates, api_key)
+    routable_coordinates = _snap_coordinates(
+        coordinates,
+        api_key,
+        snap_url=HGV_SNAP_URL,
+    )
 
     payload = _request_route(
         DIRECTIONS_URL,
@@ -79,9 +84,14 @@ def _request_route(
             response.status_code,
             _safe_response_text(response),
         )
+        car_coordinates = _snap_coordinates(
+            coordinates,
+            api_key,
+            snap_url=CAR_SNAP_URL,
+        )
         return _request_route(
             CAR_DIRECTIONS_URL,
-            coordinates,
+            car_coordinates,
             api_key,
             allow_profile_fallback=False,
         )
@@ -140,19 +150,21 @@ def _is_unroutable_point_response(response: httpx.Response) -> bool:
     )
 
 
-def _snap_coordinates_for_hgv(
+def _snap_coordinates(
     coordinates: list[list[float]],
     api_key: str,
+    *,
+    snap_url: str,
 ) -> list[list[float]]:
-    """Best-effort snap geocoded points to the HGV road network.
+    """Best-effort snap geocoded points to the selected road network.
 
-    Snapping is an enhancement, not a dependency. If the upstream snap
-    service fails or returns unusable data, directions still receives the
-    original geocoded coordinates.
+    City/locality geocoders often return a centroid rather than a point on a
+    road. A wider snap search turns that centroid into a routable waypoint.
+    If snapping fails, directions still receives the original coordinate.
     """
     try:
         response = httpx.post(
-            SNAP_URL,
+            snap_url,
             json={
                 "locations": coordinates,
                 "radius": SNAP_RADIUS_METERS,
