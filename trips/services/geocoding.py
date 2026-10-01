@@ -13,7 +13,9 @@ from .exceptions import (
 
 GEOCODING_URL = "https://api.heigit.org/pelias/v1/search"
 GEOCODING_AUTOCOMPLETE_URL = "https://api.heigit.org/pelias/v1/autocomplete"
+GEOCODING_REVERSE_URL = "https://api.heigit.org/pelias/v1/reverse"
 REQUEST_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+REVERSE_REQUEST_TIMEOUT = httpx.Timeout(4.0, connect=2.0)
 TRIP_AUTOCOMPLETE_LAYERS = (
     "venue,address,street,locality,borough,neighbourhood"
 )
@@ -104,6 +106,76 @@ def autocomplete_locations(
         )
 
     return suggestions
+
+
+def reverse_geocode_city_state(
+    *,
+    latitude: float,
+    longitude: float,
+) -> str | None:
+    """Resolve a route coordinate to the nearest city/town and state.
+
+    This is used only to enrich ELD duty-status remarks. A missing locality is
+    not treated as a trip-planning failure.
+    """
+    api_key = _get_api_key()
+
+    try:
+        response = httpx.get(
+            GEOCODING_REVERSE_URL,
+            params={
+                "point.lat": latitude,
+                "point.lon": longitude,
+                "size": 1,
+                "layers": "locality,borough,localadmin",
+            },
+            headers={"Authorization": api_key},
+            timeout=REVERSE_REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as exc:
+        raise RoutingServiceUnavailableError from exc
+    except ValueError as exc:
+        raise RoutingServiceUnavailableError from exc
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("features"), list):
+        raise RoutingServiceUnavailableError
+
+    for feature in payload["features"]:
+        if not isinstance(feature, dict) or feature.get("type") != "Feature":
+            continue
+        properties = feature.get("properties")
+        if not isinstance(properties, dict):
+            continue
+
+        city = _first_non_blank(
+            properties.get("locality"),
+            properties.get("localadmin"),
+            properties.get("borough"),
+            properties.get("name"),
+        )
+        state = _first_non_blank(
+            properties.get("region_a"),
+            properties.get("region"),
+        )
+        if city and state:
+            return f"{city}, {state}"
+        if city:
+            return city
+
+        label = properties.get("label")
+        if isinstance(label, str) and label.strip():
+            return label.strip()
+
+    return None
+
+
+def _first_non_blank(*values: Any) -> str | None:
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
 
 
 def _ensure_trip_location_is_specific(feature: dict[str, Any]) -> None:
