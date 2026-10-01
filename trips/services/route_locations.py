@@ -113,6 +113,12 @@ def enrich_schedule_event_locations(
                     total_route_distance,
                     cumulative_distance + distance,
                 )
+                if distance > 0:
+                    # The vehicle has moved away from the event's starting
+                    # locality. Do not reuse that stale label for the next
+                    # duty change unless a stop is resolved at the new route
+                    # position.
+                    last_route_label = None
 
     return result
 
