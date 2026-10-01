@@ -11,6 +11,7 @@ from .exceptions import (
 )
 
 GEOCODING_URL = "https://api.heigit.org/pelias/v1/search"
+GEOCODING_AUTOCOMPLETE_URL = "https://api.heigit.org/pelias/v1/autocomplete"
 REQUEST_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 
 
@@ -41,6 +42,55 @@ def geocode_location(location: str) -> dict[str, str | float]:
         "latitude": latitude,
         "longitude": longitude,
     }
+
+
+def autocomplete_locations(
+    query: str,
+    *,
+    size: int = 5,
+    country: str = "USA",
+) -> list[dict[str, str | float]]:
+    api_key = _get_api_key()
+
+    try:
+        response = httpx.get(
+            GEOCODING_AUTOCOMPLETE_URL,
+            params={
+                "text": query,
+                "size": size,
+                "boundary.country": country,
+            },
+            headers={"Authorization": api_key},
+            timeout=REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as exc:
+        raise RoutingServiceUnavailableError from exc
+    except ValueError as exc:
+        raise RoutingServiceUnavailableError from exc
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("features"), list):
+        raise RoutingServiceUnavailableError
+
+    suggestions: list[dict[str, str | float]] = []
+    for feature in payload["features"]:
+        if not isinstance(feature, dict) or feature.get("type") != "Feature":
+            continue
+        try:
+            label = _feature_label(feature)
+            longitude, latitude = _feature_coordinates(feature)
+        except RoutingServiceUnavailableError:
+            continue
+        suggestions.append(
+            {
+                "label": label,
+                "latitude": latitude,
+                "longitude": longitude,
+            }
+        )
+
+    return suggestions
 
 
 def _get_api_key() -> str:
