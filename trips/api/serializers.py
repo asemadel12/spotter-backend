@@ -35,3 +35,11 @@ class TripPlanSerializer(serializers.Serializer):
         max_value=Decimal("70"),
         coerce_to_string=False,
     )
+
+
+class LocationAutocompleteQuerySerializer(serializers.Serializer):
+    q = serializers.CharField(
+        min_length=2,
+        max_length=255,
+        trim_whitespace=True,
+    )
