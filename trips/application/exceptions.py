@@ -8,3 +8,11 @@ class TripLocationNotFoundError(TripPlanningApplicationError):
     def __init__(self, field: str):
         self.field = field
         super().__init__(f"Could not resolve {field}.")
+
+
+class TripLocationTooBroadError(TripPlanningApplicationError):
+    """Raised when a trip location resolves only to a state/county/country."""
+
+    def __init__(self, field: str):
+        self.field = field
+        super().__init__(f"{field} is too broad for routing.")
