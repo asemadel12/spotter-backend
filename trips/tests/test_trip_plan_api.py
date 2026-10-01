@@ -4,7 +4,10 @@ from unittest.mock import patch
 import pytest
 from rest_framework.test import APIClient
 
-from trips.application.exceptions import TripLocationNotFoundError
+from trips.application.exceptions import (
+    TripLocationNotFoundError,
+    TripLocationTooBroadError,
+)
 from trips.services.daily_logs import DailyLogBuildError
 from trips.services.exceptions import (
     RoutingServiceNotConfiguredError,
@@ -98,6 +101,30 @@ def test_location_not_found_returns_field_specific_400(
             "code": "location_not_found",
             "field": field,
             "message": f"Could not resolve {field.replace('_', ' ')}.",
+        }
+    }
+
+
+def test_too_broad_location_returns_field_specific_400(
+    api_client,
+    valid_trip_payload,
+):
+    with patch(
+        "trips.api.views.plan_trip",
+        side_effect=TripLocationTooBroadError("dropoff_location"),
+    ):
+        response = api_client.post(
+            "/api/trips/plan/",
+            valid_trip_payload,
+            format="json",
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": {
+            "code": "location_too_broad",
+            "field": "dropoff_location",
+            "message": "Use a city, street, or full address for dropoff location.",
         }
     }
 
