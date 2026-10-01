@@ -31,6 +31,7 @@ class _SourceEvent:
     duration_microseconds: int
     distance_meters: Decimal
     location: str
+    location_label: str | None
     reason: str
     route_progress: Mapping[str, Any] | None
 
@@ -44,6 +45,7 @@ class _EventFragment:
     duration_microseconds: int
     distance_meters: Decimal
     location: str
+    location_label: str | None
     reason: str
     route_progress: dict[str, Any] | None
 
@@ -58,6 +60,8 @@ class _EventFragment:
             "location": self.location,
             "reason": self.reason,
         }
+        if self.location_label is not None:
+            result["location_label"] = self.location_label
         if self.route_progress is not None:
             result["route_progress"] = deepcopy(self.route_progress)
         return result
@@ -184,9 +188,14 @@ def _parse_schedule(
             raise DailyLogBuildError("Only driving events may contain distance.")
 
         location = raw_event.get("location", "en_route")
+        location_label = raw_event.get("location_label")
         reason = raw_event.get("reason", "")
         if not isinstance(location, str) or not isinstance(reason, str):
             raise DailyLogBuildError("Event location or reason is malformed.")
+        if location_label is not None and (
+            not isinstance(location_label, str) or not location_label.strip()
+        ):
+            raise DailyLogBuildError("Event location label is malformed.")
         route_progress = raw_event.get("route_progress")
         if route_progress is not None and not isinstance(route_progress, Mapping):
             raise DailyLogBuildError("Event route progress is malformed.")
@@ -200,6 +209,7 @@ def _parse_schedule(
                 duration_microseconds=duration_microseconds,
                 distance_meters=distance,
                 location=location,
+                location_label=location_label.strip() if location_label else None,
                 reason=reason,
                 route_progress=route_progress,
             )
@@ -277,6 +287,7 @@ def _split_event(
                 duration_microseconds=duration_microseconds,
                 distance_meters=distance,
                 location=event.location,
+                location_label=event.location_label,
                 reason=event.reason,
                 route_progress=route_progress,
             )
@@ -460,9 +471,13 @@ def _remark_location(
         label = _location_label(locations, location_ref)
         if label is not None:
             return {"ref": location_ref, "label": label}
+
+    if fragment.location_label is not None:
+        return {"ref": location_ref, "label": fragment.location_label}
+
     if location_ref == "en_route" or fragment.status == "DRIVING":
         return {"ref": "en_route", "label": "En route"}
-    return {"ref": location_ref, "label": location_ref.replace("_", " ").title()}
+    return {"ref": location_ref, "label": location_ref}
 
 
 def _location_label(
