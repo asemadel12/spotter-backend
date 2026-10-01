@@ -2,12 +2,17 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from trips.application.planning import plan_trip
+from trips.services.exceptions import (
+    RoutingServiceNotConfiguredError,
+    RoutingServiceUnavailableError,
+)
+from trips.services.geocoding import autocomplete_locations
 
 from .errors import (
     CONTROLLED_TRIP_PLANNING_ERRORS,
     trip_planning_error_response,
 )
-from .serializers import TripPlanSerializer
+from .serializers import LocationAutocompleteQuerySerializer, TripPlanSerializer
 
 
 class HealthCheckView(APIView):
@@ -21,6 +26,22 @@ class HealthCheckView(APIView):
                 "service": "spotter-assessment-api",
             }
         )
+
+
+class LocationAutocompleteView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request):
+        serializer = LocationAutocompleteQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            suggestions = autocomplete_locations(serializer.validated_data["q"])
+        except (RoutingServiceNotConfiguredError, RoutingServiceUnavailableError):
+            suggestions = []
+
+        return Response({"suggestions": suggestions})
 
 
 class TripPlanView(APIView):
