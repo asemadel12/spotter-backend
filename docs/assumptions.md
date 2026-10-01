@@ -25,5 +25,8 @@ direct FMCSA requirements.
   changes along the route, so the application does not infer timezone changes
   while traveling.
 - Driver, carrier, vehicle, shipping-document, and other profile fields not
-  supplied by the assessment are not invented. They will remain blank when a
-  later sprint renders the visual log sheet.
+  supplied by the assessment are not invented. They remain blank on the
+  rendered paper log sheet.
+- Duty-status changes that occur en route are best-effort reverse geocoded to
+  the nearest city/town and state for ELD remarks. Reverse-geocoder failure
+  never blocks an otherwise valid trip; the UI falls back to "En route".
