@@ -75,17 +75,27 @@ def test_schedule_events_receive_nearest_city_state_and_cache_same_stop():
     assert "location_label" not in schedule["events"][1]
 
 
-def test_reverse_geocode_failure_never_breaks_trip_schedule():
+def test_reverse_geocode_failure_never_breaks_trip_schedule_or_retries_every_stop():
     schedule = {
         "summary": {"total_trip_distance_meters": 1000},
         "events": [
             {
                 "type": "DRIVING",
                 "location": "current_location_to_pickup_location",
-                "distance_meters": 500,
+                "distance_meters": 400,
             },
             {
                 "type": "FUEL",
+                "location": "en_route",
+                "distance_meters": 0,
+            },
+            {
+                "type": "DRIVING",
+                "location": "current_location_to_pickup_location",
+                "distance_meters": 200,
+            },
+            {
+                "type": "BREAK",
                 "location": "en_route",
                 "distance_meters": 0,
             },
@@ -102,7 +112,7 @@ def test_reverse_geocode_failure_never_breaks_trip_schedule():
     with patch(
         "trips.services.route_locations.reverse_geocode_city_state",
         side_effect=RoutingServiceUnavailableError(),
-    ):
+    ) as reverse:
         result = enrich_schedule_event_locations(
             schedule=schedule,
             route=route,
@@ -110,6 +120,8 @@ def test_reverse_geocode_failure_never_breaks_trip_schedule():
 
     assert result["events"][1]["location"] == "en_route"
     assert "location_label" not in result["events"][1]
+    assert "location_label" not in result["events"][3]
+    reverse.assert_called_once()
 
 
 
