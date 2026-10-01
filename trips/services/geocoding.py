@@ -119,20 +119,53 @@ def reverse_geocode_city_state(
 ) -> str | None:
     """Resolve a route coordinate to the nearest city/town and state.
 
-    This is used only to enrich ELD duty-status remarks. A missing locality is
-    not treated as a trip-planning failure.
+    Prefer locality-like Pelias layers. Rural road points may not have a
+    locality-layer feature directly at the coordinate, so a broader reverse
+    lookup is used as a fallback and its locality metadata is extracted.
     """
     api_key = _get_api_key()
+
+    primary = _reverse_geocode_payload(
+        latitude=latitude,
+        longitude=longitude,
+        api_key=api_key,
+        layers="locality,borough,localadmin",
+        size=1,
+    )
+    label = _city_state_from_reverse_payload(primary)
+    if label is not None:
+        return label
+
+    fallback = _reverse_geocode_payload(
+        latitude=latitude,
+        longitude=longitude,
+        api_key=api_key,
+        layers=None,
+        size=5,
+    )
+    return _city_state_from_reverse_payload(fallback)
+
+
+def _reverse_geocode_payload(
+    *,
+    latitude: float,
+    longitude: float,
+    api_key: str,
+    layers: str | None,
+    size: int,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "point.lat": latitude,
+        "point.lon": longitude,
+        "size": size,
+    }
+    if layers is not None:
+        params["layers"] = layers
 
     try:
         response = httpx.get(
             GEOCODING_REVERSE_URL,
-            params={
-                "point.lat": latitude,
-                "point.lon": longitude,
-                "size": 1,
-                "layers": "locality,borough,localadmin",
-            },
+            params=params,
             headers={"Authorization": api_key},
             timeout=REVERSE_REQUEST_TIMEOUT,
         )
@@ -145,19 +178,32 @@ def reverse_geocode_city_state(
 
     if not isinstance(payload, dict) or not isinstance(payload.get("features"), list):
         raise RoutingServiceUnavailableError
+    return payload
 
-    for feature in payload["features"]:
+
+def _city_state_from_reverse_payload(payload: dict[str, Any]) -> str | None:
+    features = payload.get("features")
+    if not isinstance(features, list):
+        raise RoutingServiceUnavailableError
+
+    for feature in features:
         if not isinstance(feature, dict) or feature.get("type") != "Feature":
             continue
         properties = feature.get("properties")
         if not isinstance(properties, dict):
             continue
 
+        layer = properties.get("layer")
+        layer_name = (
+            properties.get("name")
+            if layer in {"locality", "localadmin", "borough"}
+            else None
+        )
         city = _first_non_blank(
             properties.get("locality"),
             properties.get("localadmin"),
             properties.get("borough"),
-            properties.get("name"),
+            layer_name,
         )
         state = _first_non_blank(
             properties.get("region_a"),
@@ -167,10 +213,6 @@ def reverse_geocode_city_state(
             return f"{city}, {state}"
         if city:
             return city
-
-        label = properties.get("label")
-        if isinstance(label, str) and label.strip():
-            return label.strip()
 
     return None
 
