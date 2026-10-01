@@ -9,6 +9,7 @@ from trips.services.exceptions import (
     RoutingServiceUnavailableError,
 )
 from trips.services.routing import (
+    CAR_DIRECTIONS_URL,
     DIRECTIONS_URL,
     SNAP_RADIUS_METERS,
     SNAP_URL,
@@ -423,3 +424,67 @@ def test_snap_failure_falls_back_to_original_coordinates(
         [-86.1581, 39.7684],
         [-96.797, 32.7767],
     ]
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_hgv_400_retries_once_with_driving_car(
+    resolved_locations,
+    route_payload,
+):
+    current, pickup, dropoff = resolved_locations
+    snap_failure = httpx.Response(
+        503,
+        json={"error": "snap unavailable"},
+        request=httpx.Request("POST", SNAP_URL),
+    )
+    hgv_unroutable = httpx.Response(
+        400,
+        json={"error": {"message": "Could not find point within radius"}},
+        request=httpx.Request("POST", DIRECTIONS_URL),
+    )
+    car_route = make_response(route_payload)
+
+    with patch(
+        "trips.services.routing.httpx.post",
+        side_effect=[snap_failure, hgv_unroutable, car_route],
+    ) as post:
+        result = calculate_route(current, pickup, dropoff)
+
+    assert result["distance_meters"] == route_payload["features"][0]["properties"]["summary"]["distance"]
+    assert post.call_args_list[1].args == (DIRECTIONS_URL,)
+    assert post.call_args_list[2].args == (CAR_DIRECTIONS_URL,)
+    assert post.call_args_list[2].kwargs["json"] == {
+        "coordinates": [
+            [-87.6298, 41.8781],
+            [-86.1581, 39.7684],
+            [-96.797, 32.7767],
+        ],
+        "instructions": True,
+    }
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_hgv_server_error_does_not_fallback_to_driving_car(
+    resolved_locations,
+):
+    current, pickup, dropoff = resolved_locations
+    snap_failure = httpx.Response(
+        503,
+        json={"error": "snap unavailable"},
+        request=httpx.Request("POST", SNAP_URL),
+    )
+    hgv_failure = httpx.Response(
+        503,
+        json={"error": "upstream failure"},
+        request=httpx.Request("POST", DIRECTIONS_URL),
+    )
+
+    with patch(
+        "trips.services.routing.httpx.post",
+        side_effect=[snap_failure, hgv_failure],
+    ) as post:
+        with pytest.raises(RoutingServiceUnavailableError):
+            calculate_route(current, pickup, dropoff)
+
+    assert len(post.call_args_list) == 2
+    assert post.call_args_list[1].args == (DIRECTIONS_URL,)
