@@ -110,3 +110,52 @@ def test_reverse_geocode_failure_never_breaks_trip_schedule():
 
     assert result["events"][1]["location"] == "en_route"
     assert "location_label" not in result["events"][1]
+
+
+
+def test_driving_after_pickup_reuses_known_pickup_location_without_reverse_lookup():
+    schedule = {
+        "summary": {"total_trip_distance_meters": 1000},
+        "events": [
+            {
+                "type": "DRIVING",
+                "location": "current_location_to_pickup_location",
+                "distance_meters": 400,
+                "route_progress": {"leg_index": 0},
+            },
+            {
+                "type": "PICKUP",
+                "location": "pickup_location",
+                "distance_meters": 0,
+            },
+            {
+                "type": "DRIVING",
+                "location": "pickup_location_to_dropoff_location",
+                "distance_meters": 600,
+                "route_progress": {"leg_index": 1},
+            },
+        ],
+    }
+    route = {
+        "distance_meters": 1000,
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [[-100.0, 30.0], [-99.0, 30.0]],
+        },
+    }
+    locations = {
+        "current_location": {"label": "Start City, ST"},
+        "pickup_location": {"label": "Pickup City, OK"},
+    }
+
+    with patch(
+        "trips.services.route_locations.reverse_geocode_city_state"
+    ) as reverse:
+        result = enrich_schedule_event_locations(
+            schedule=schedule,
+            route=route,
+            locations=locations,
+        )
+
+    assert result["events"][2]["location_label"] == "Pickup City, OK"
+    reverse.assert_not_called()
