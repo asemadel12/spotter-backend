@@ -214,6 +214,16 @@ def _city_state_from_reverse_payload(payload: dict[str, Any]) -> str | None:
         if city:
             return city
 
+        county = _first_non_blank(
+            properties.get("county"),
+            properties.get("macrocounty"),
+            properties.get("name") if layer in {"county", "macrocounty"} else None,
+        )
+        if county and state:
+            return f"{county}, {state}"
+        if county:
+            return county
+
     return None
 
 
