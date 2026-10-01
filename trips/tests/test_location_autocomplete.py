@@ -79,6 +79,7 @@ def test_autocomplete_returns_normalized_us_suggestions(autocomplete_payload):
         "text": "233 S Wa",
         "size": 5,
         "boundary.country": "USA",
+        "layers": "venue,address,street,locality,borough,neighbourhood",
     }
     assert kwargs["headers"] == {"Authorization": "test-api-key"}
     assert isinstance(kwargs["timeout"], httpx.Timeout)
