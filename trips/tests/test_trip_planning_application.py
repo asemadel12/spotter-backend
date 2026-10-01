@@ -111,10 +111,14 @@ def test_plan_trip_orchestrates_services_in_order(
                         "trips.application.planning.build_daily_logs",
                         return_value=daily_logs,
                     ) as daily_log_builder:
-                        result = plan_trip(
-                            validated_trip,
-                            start_datetime=start,
-                        )
+                        with patch(
+                            "trips.application.planning.enrich_daily_log_locations",
+                            return_value=daily_logs,
+                        ) as daily_location_enricher:
+                            result = plan_trip(
+                                validated_trip,
+                                start_datetime=start,
+                            )
 
     assert geocode.call_args_list == [
         call("Chicago, IL"),
@@ -134,6 +138,11 @@ def test_plan_trip_orchestrates_services_in_order(
     )
     daily_log_builder.assert_called_once_with(
         schedule=schedule,
+        locations=locations,
+    )
+    daily_location_enricher.assert_called_once_with(
+        daily_logs=daily_logs,
+        route=route,
         locations=locations,
     )
     assert result == {
