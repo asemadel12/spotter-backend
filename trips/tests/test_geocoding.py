@@ -188,8 +188,12 @@ def test_missing_api_key_raises_configuration_error_without_http_request():
     get.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "layer",
+    ["country", "macroregion", "region", "macrocounty", "county"],
+)
 @override_settings(ORS_API_KEY="test-api-key")
-def test_state_level_location_is_rejected_as_too_broad():
+def test_coarse_locations_are_rejected_as_too_broad(layer):
     payload = {
         "type": "FeatureCollection",
         "features": [
@@ -200,8 +204,8 @@ def test_state_level_location_is_rejected_as_too_broad():
                     "coordinates": [-99.9018, 31.9686],
                 },
                 "properties": {
-                    "label": "Texas, USA",
-                    "layer": "region",
+                    "label": "Broad location, USA",
+                    "layer": layer,
                 },
             }
         ],
@@ -212,4 +216,4 @@ def test_state_level_location_is_rejected_as_too_broad():
         return_value=make_response(payload),
     ):
         with pytest.raises(LocationTooBroadError):
-            geocode_location("Texas, USA")
+            geocode_location("Broad location")
