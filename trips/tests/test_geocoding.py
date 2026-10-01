@@ -10,7 +10,12 @@ from trips.services.exceptions import (
     RoutingServiceNotConfiguredError,
     RoutingServiceUnavailableError,
 )
-from trips.services.geocoding import GEOCODING_URL, geocode_location
+from trips.services.geocoding import (
+    GEOCODING_REVERSE_URL,
+    GEOCODING_URL,
+    geocode_location,
+    reverse_geocode_city_state,
+)
 
 
 @pytest.fixture
@@ -217,3 +222,93 @@ def test_coarse_locations_are_rejected_as_too_broad(layer):
     ):
         with pytest.raises(LocationTooBroadError):
             geocode_location("Broad location")
+
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_reverse_geocode_returns_city_and_state_abbreviation():
+    payload = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [-94.9027, 29.3838],
+                },
+                "properties": {
+                    "name": "Texas City",
+                    "locality": "Texas City",
+                    "region": "Texas",
+                    "region_a": "TX",
+                    "label": "Texas City, TX, USA",
+                },
+            }
+        ],
+    }
+    response = httpx.Response(
+        200,
+        json=payload,
+        request=httpx.Request("GET", GEOCODING_REVERSE_URL),
+    )
+
+    with patch(
+        "trips.services.geocoding.httpx.get",
+        return_value=response,
+    ) as get:
+        result = reverse_geocode_city_state(
+            latitude=29.3838,
+            longitude=-94.9027,
+        )
+
+    assert result == "Texas City, TX"
+    args, kwargs = get.call_args
+    assert args == (GEOCODING_REVERSE_URL,)
+    assert kwargs["params"] == {
+        "point.lat": 29.3838,
+        "point.lon": -94.9027,
+        "size": 1,
+        "layers": "locality,borough,localadmin",
+    }
+    assert kwargs["headers"] == {"Authorization": "test-api-key"}
+    assert isinstance(kwargs["timeout"], httpx.Timeout)
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_reverse_geocode_returns_none_when_no_locality_is_found():
+    response = httpx.Response(
+        200,
+        json={"type": "FeatureCollection", "features": []},
+        request=httpx.Request("GET", GEOCODING_REVERSE_URL),
+    )
+
+    with patch(
+        "trips.services.geocoding.httpx.get",
+        return_value=response,
+    ):
+        assert (
+            reverse_geocode_city_state(
+                latitude=35.0,
+                longitude=-100.0,
+            )
+            is None
+        )
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_reverse_geocode_upstream_failure_is_controlled():
+    response = httpx.Response(
+        503,
+        json={"error": "unavailable"},
+        request=httpx.Request("GET", GEOCODING_REVERSE_URL),
+    )
+
+    with patch(
+        "trips.services.geocoding.httpx.get",
+        return_value=response,
+    ):
+        with pytest.raises(RoutingServiceUnavailableError):
+            reverse_geocode_city_state(
+                latitude=35.0,
+                longitude=-100.0,
+            )
