@@ -174,3 +174,25 @@ def test_first_driving_remark_clamps_tiny_negative_route_progress_to_zero():
         "ref": "current_location",
         "label": "Chicago, Illinois, USA",
     }
+
+
+
+def test_resolved_route_location_label_is_used_for_fmcsa_remark():
+    start = datetime(2026, 1, 1, 8, tzinfo=UTC)
+    event = make_schedule_event(
+        "BREAK",
+        "ON_DUTY_NOT_DRIVING",
+        start,
+        start + timedelta(minutes=30),
+        location="en_route",
+    )
+    event["location_label"] = "Amarillo, TX"
+
+    result = build_daily_logs(schedule=make_schedule([event]))
+    log = result["logs"][0]
+
+    assert log["remarks"][0]["location"] == {
+        "ref": "en_route",
+        "label": "Amarillo, TX",
+    }
+    assert log["events"][0]["location_label"] == "Amarillo, TX"
