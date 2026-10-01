@@ -91,7 +91,7 @@ trips/
 │  └─ planning.py               # Trip-planning orchestration/use case
 ├─ services/
 │  ├─ geocoding.py              # HeiGIT/Pelias location resolution + autocomplete
-│  ├─ routing.py                # HGV route retrieval + normalization
+│  ├─ routing.py                # HGV road snapping + route retrieval + normalization
 │  ├─ hos.py                    # Pure HOS scheduling engine
 │  ├─ daily_logs.py             # 24-hour ELD log builder
 │  └─ exceptions.py             # Controlled upstream routing errors
@@ -121,6 +121,7 @@ trips/
 POST /api/trips/plan/
   -> request validation
   -> geocoding
+  -> best-effort HGV road snapping
   -> HGV routing
   -> HOS scheduling
   -> daily ELD log generation
