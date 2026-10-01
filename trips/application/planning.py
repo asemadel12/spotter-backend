@@ -5,9 +5,12 @@ from typing import Any, Mapping
 
 from django.utils import timezone
 
-from trips.application.exceptions import TripLocationNotFoundError
+from trips.application.exceptions import (
+    TripLocationNotFoundError,
+    TripLocationTooBroadError,
+)
 from trips.services.daily_logs import build_daily_logs
-from trips.services.exceptions import LocationNotFoundError
+from trips.services.exceptions import LocationNotFoundError, LocationTooBroadError
 from trips.services.geocoding import geocode_location
 from trips.services.hos import build_hos_schedule
 from trips.services.routing import calculate_route
@@ -59,6 +62,8 @@ def _resolve_locations(
     for field in LOCATION_FIELDS:
         try:
             locations[field] = geocode_location(validated_data[field])
+        except LocationTooBroadError as exc:
+            raise TripLocationTooBroadError(field) from exc
         except LocationNotFoundError as exc:
             raise TripLocationNotFoundError(field) from exc
 
