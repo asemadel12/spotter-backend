@@ -192,6 +192,10 @@ def _known_location_label(
     value = locations.get(ref)
     if not isinstance(value, Mapping):
         return None
+    city_state = value.get("city_state")
+    if isinstance(city_state, str) and city_state.strip():
+        return city_state.strip()
+
     label = value.get("label")
     if isinstance(label, str) and label.strip():
         return label.strip()
