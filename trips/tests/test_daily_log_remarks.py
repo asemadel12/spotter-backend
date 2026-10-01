@@ -196,3 +196,30 @@ def test_resolved_route_location_label_is_used_for_fmcsa_remark():
         "label": "Amarillo, TX",
     }
     assert log["events"][0]["location_label"] == "Amarillo, TX"
+
+
+
+def test_known_location_remarks_prefer_city_state_over_full_label():
+    start = datetime(2026, 1, 1, 8, tzinfo=UTC)
+    event = make_schedule_event(
+        "PICKUP",
+        "ON_DUTY_NOT_DRIVING",
+        start,
+        start + timedelta(hours=1),
+        location="pickup_location",
+    )
+
+    result = build_daily_logs(
+        schedule=make_schedule([event]),
+        locations={
+            "pickup_location": {
+                "label": "Dallas, Dallas County, Texas, USA",
+                "city_state": "Dallas, TX",
+            }
+        },
+    )
+
+    assert result["logs"][0]["remarks"][0]["location"] == {
+        "ref": "pickup_location",
+        "label": "Dallas, TX",
+    }
