@@ -110,7 +110,7 @@ trips/
 - `api/` owns HTTP concerns only: request validation, status codes, and public error payloads.
 - `application/` coordinates the complete trip-planning use case without knowing about DRF responses.
 - `services/geocoding.py` and `services/routing.py` isolate external HeiGIT/openrouteservice behavior and normalize upstream responses.
-- Routing prefers the `driving-hgv` profile. If HeiGIT returns a client-side unroutable-point response for that profile, the backend retries once with `driving-car` so valid user locations do not fail solely because of HGV graph snapping. Upstream outages and server errors are never hidden by this fallback.
+- Routing prefers the `driving-hgv` profile. Geocoded waypoints are first snapped directly to the selected road graph. If a city centroid is not within the public routing snap radius, the backend probes a bounded set of nearby candidate points and uses the nearest successful road snap. If HGV still reports an unroutable point, the backend retries once with `driving-car`. Upstream outages and server errors are never hidden by this fallback.
 - `services/hos.py` owns HOS scheduling and route-progress consumption.
 - `services/daily_logs.py` converts the generated schedule into complete 24-hour ELD logs.
 - Domain engines do not call the API layer and do not depend on DRF.
