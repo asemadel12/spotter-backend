@@ -362,3 +362,56 @@ def test_daily_log_boundary_enrichment_reuses_known_route_endpoints():
     assert log["from_location_label"] == "Chicago, IL"
     assert log["to_location_label"] == "Dallas, TX"
     reverse.assert_not_called()
+
+
+
+def test_unresolved_stop_does_not_reuse_stale_pre_drive_city():
+    schedule = {
+        "summary": {"total_trip_distance_meters": 1000},
+        "events": [
+            {
+                "type": "PICKUP",
+                "location": "pickup_location",
+                "distance_meters": 0,
+            },
+            {
+                "type": "DRIVING",
+                "location": "pickup_location_to_dropoff_location",
+                "distance_meters": 800,
+            },
+            {
+                "type": "BREAK",
+                "location": "en_route",
+                "distance_meters": 0,
+            },
+            {
+                "type": "DRIVING",
+                "location": "pickup_location_to_dropoff_location",
+                "distance_meters": 200,
+            },
+        ],
+    }
+    route = {
+        "distance_meters": 1000,
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [[-100.0, 30.0], [-99.0, 30.0]],
+        },
+    }
+    locations = {
+        "pickup_location": {"label": "Neely Township, MO"},
+    }
+
+    with patch(
+        "trips.services.route_locations.reverse_geocode_city_state",
+        return_value=None,
+    ):
+        result = enrich_schedule_event_locations(
+            schedule=schedule,
+            route=route,
+            locations=locations,
+        )
+
+    assert result["events"][1]["location_label"] == "Neely Township, MO"
+    assert "location_label" not in result["events"][2]
+    assert "location_label" not in result["events"][3]
