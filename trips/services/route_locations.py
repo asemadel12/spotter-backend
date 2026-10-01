@@ -11,7 +11,6 @@ from trips.services.geocoding import reverse_geocode_city_state
 logger = logging.getLogger(__name__)
 
 _STOP_EVENT_TYPES = {
-    "DRIVING",
     "BREAK",
     "FUEL",
     "SLEEPER",
@@ -48,6 +47,10 @@ def enrich_schedule_event_locations(
 
     cumulative_distance = 0.0
     reverse_cache: dict[tuple[float, float], str | None] = {}
+    last_route_label: str | None = _known_location_label(
+        locations,
+        "current_location",
+    )
 
     for event in events:
         if not isinstance(event, dict):
@@ -58,6 +61,23 @@ def enrich_schedule_event_locations(
 
         if isinstance(location_ref, str) and location_ref in _LOCATION_REFS:
             label = _known_location_label(locations, location_ref)
+            if label:
+                event["location_label"] = label
+                last_route_label = label
+
+        if event_type == "DRIVING" and "location_label" not in event:
+            route_progress = event.get("route_progress")
+            leg_index = (
+                route_progress.get("leg_index")
+                if isinstance(route_progress, Mapping)
+                else None
+            )
+            if cumulative_distance <= 0:
+                label = _known_location_label(locations, "current_location")
+            elif leg_index == 1 and location_ref == "pickup_location_to_dropoff_location":
+                label = _known_location_label(locations, "pickup_location")
+            else:
+                label = last_route_label
             if label:
                 event["location_label"] = label
 
@@ -91,6 +111,7 @@ def enrich_schedule_event_locations(
                     label = reverse_cache[cache_key]
                     if label:
                         event["location_label"] = label
+                        last_route_label = label
 
         if event_type == "DRIVING":
             distance = _non_negative_number(event.get("distance_meters"))
