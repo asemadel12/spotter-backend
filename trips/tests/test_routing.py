@@ -569,4 +569,58 @@ def test_city_centroid_can_be_snapped_with_wider_search_radius(
         calculate_route(current, pickup, dropoff)
 
     assert post.call_args_list[0].args == (HGV_SNAP_URL,)
-    assert post.call_args_list[0].kwargs["json"]["radius"] == 20000
+    assert post.call_args_list[0].kwargs["json"]["radius"] == SNAP_RADIUS_METERS
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_missing_direct_snap_searches_nearby_candidates(
+    resolved_locations,
+    route_payload,
+):
+    current, pickup, dropoff = resolved_locations
+
+    direct_snap = httpx.Response(
+        200,
+        json={
+            "locations": [
+                {"location": [-87.6301, 41.8784]},
+                {"location": [-86.1584, 39.7687]},
+                None,
+            ]
+        },
+        request=httpx.Request("POST", HGV_SNAP_URL),
+    )
+
+    nearby_snap = httpx.Response(
+        200,
+        json={
+            "locations": [
+                {"location": [-96.7965, 32.7810]},
+                *([None] * 47),
+            ]
+        },
+        request=httpx.Request("POST", HGV_SNAP_URL),
+    )
+
+    route_response = make_response(route_payload)
+
+    with patch(
+        "trips.services.routing.httpx.post",
+        side_effect=[direct_snap, nearby_snap, route_response],
+    ) as post:
+        calculate_route(current, pickup, dropoff)
+
+    assert post.call_args_list[0].args == (HGV_SNAP_URL,)
+    assert post.call_args_list[0].kwargs["json"]["radius"] == SNAP_RADIUS_METERS
+
+    nearby_call = post.call_args_list[1]
+    assert nearby_call.args == (HGV_SNAP_URL,)
+    assert nearby_call.kwargs["json"]["radius"] == SNAP_RADIUS_METERS
+    assert len(nearby_call.kwargs["json"]["locations"]) == 48
+
+    directions_call = post.call_args_list[2]
+    assert directions_call.args == (DIRECTIONS_URL,)
+    assert directions_call.kwargs["json"]["coordinates"][2] == [
+        -96.7965,
+        32.781,
+    ]
