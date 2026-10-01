@@ -412,6 +412,6 @@ def test_unresolved_stop_does_not_reuse_stale_pre_drive_city():
             locations=locations,
         )
 
-    assert result["events"][1]["location_label"] == "Neely Township, MO"
+    assert result["events"][0]["location_label"] == "Neely Township, MO"
     assert "location_label" not in result["events"][2]
     assert "location_label" not in result["events"][3]
