@@ -22,7 +22,7 @@ CAR_DIRECTIONS_URL = (
     "https://api.heigit.org/openrouteservice/v2/directions/"
     "driving-car/geojson"
 )
-SNAP_RADIUS_METERS = 5000
+SNAP_RADIUS_METERS = 20000
 REQUEST_TIMEOUT = httpx.Timeout(20.0, connect=5.0)
 LEG_NAMES = (
     ("current_location", "pickup_location"),
