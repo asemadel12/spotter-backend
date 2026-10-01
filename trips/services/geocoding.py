@@ -6,6 +6,7 @@ from django.conf import settings
 
 from .exceptions import (
     LocationNotFoundError,
+    LocationTooBroadError,
     RoutingServiceNotConfiguredError,
     RoutingServiceUnavailableError,
 )
@@ -13,6 +14,16 @@ from .exceptions import (
 GEOCODING_URL = "https://api.heigit.org/pelias/v1/search"
 GEOCODING_AUTOCOMPLETE_URL = "https://api.heigit.org/pelias/v1/autocomplete"
 REQUEST_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+TRIP_AUTOCOMPLETE_LAYERS = (
+    "venue,address,street,locality,borough,neighbourhood"
+)
+TOO_BROAD_LAYERS = {
+    "country",
+    "macroregion",
+    "region",
+    "macrocounty",
+    "county",
+}
 
 
 def geocode_location(location: str) -> dict[str, str | float]:
@@ -33,6 +44,7 @@ def geocode_location(location: str) -> dict[str, str | float]:
         raise RoutingServiceUnavailableError from exc
 
     feature = _first_feature(payload)
+    _ensure_trip_location_is_specific(feature)
     label = _feature_label(feature)
     longitude, latitude = _feature_coordinates(feature)
 
@@ -59,6 +71,7 @@ def autocomplete_locations(
                 "text": query,
                 "size": size,
                 "boundary.country": country,
+                "layers": TRIP_AUTOCOMPLETE_LAYERS,
             },
             headers={"Authorization": api_key},
             timeout=REQUEST_TIMEOUT,
@@ -91,6 +104,16 @@ def autocomplete_locations(
         )
 
     return suggestions
+
+
+def _ensure_trip_location_is_specific(feature: dict[str, Any]) -> None:
+    properties = feature.get("properties")
+    if not isinstance(properties, dict):
+        raise RoutingServiceUnavailableError
+
+    layer = properties.get("layer")
+    if isinstance(layer, str) and layer in TOO_BROAD_LAYERS:
+        raise LocationTooBroadError
 
 
 def _get_api_key() -> str:
