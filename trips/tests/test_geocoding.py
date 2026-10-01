@@ -407,3 +407,101 @@ def test_forward_locality_layer_can_use_name_as_city():
         result = geocode_location("Texas City, TX")
 
     assert result["city_state"] == "Texas City, TX"
+
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_reverse_geocode_falls_back_to_broader_feature_metadata():
+    primary = httpx.Response(
+        200,
+        json={"type": "FeatureCollection", "features": []},
+        request=httpx.Request("GET", GEOCODING_REVERSE_URL),
+    )
+    fallback = httpx.Response(
+        200,
+        json={
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [-96.95, 33.05],
+                    },
+                    "properties": {
+                        "layer": "street",
+                        "name": "Farm to Market Road",
+                        "locality": "Lewisville",
+                        "region": "Texas",
+                        "region_a": "TX",
+                    },
+                }
+            ],
+        },
+        request=httpx.Request("GET", GEOCODING_REVERSE_URL),
+    )
+
+    with patch(
+        "trips.services.geocoding.httpx.get",
+        side_effect=[primary, fallback],
+    ) as get:
+        result = reverse_geocode_city_state(
+            latitude=33.05,
+            longitude=-96.95,
+        )
+
+    assert result == "Lewisville, TX"
+    assert get.call_count == 2
+    assert get.call_args_list[0].kwargs["params"] == {
+        "point.lat": 33.05,
+        "point.lon": -96.95,
+        "size": 1,
+        "layers": "locality,borough,localadmin",
+    }
+    assert get.call_args_list[1].kwargs["params"] == {
+        "point.lat": 33.05,
+        "point.lon": -96.95,
+        "size": 5,
+    }
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_reverse_geocode_broad_fallback_does_not_use_road_name_as_city():
+    primary = httpx.Response(
+        200,
+        json={"type": "FeatureCollection", "features": []},
+        request=httpx.Request("GET", GEOCODING_REVERSE_URL),
+    )
+    fallback = httpx.Response(
+        200,
+        json={
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [-96.95, 33.05],
+                    },
+                    "properties": {
+                        "layer": "street",
+                        "name": "Farm to Market Road",
+                        "region_a": "TX",
+                    },
+                }
+            ],
+        },
+        request=httpx.Request("GET", GEOCODING_REVERSE_URL),
+    )
+
+    with patch(
+        "trips.services.geocoding.httpx.get",
+        side_effect=[primary, fallback],
+    ):
+        assert (
+            reverse_geocode_city_state(
+                latitude=33.05,
+                longitude=-96.95,
+            )
+            is None
+        )
