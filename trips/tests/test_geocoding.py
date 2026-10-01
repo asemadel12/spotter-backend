@@ -6,6 +6,7 @@ from django.test import override_settings
 
 from trips.services.exceptions import (
     LocationNotFoundError,
+    LocationTooBroadError,
     RoutingServiceNotConfiguredError,
     RoutingServiceUnavailableError,
 )
@@ -185,3 +186,30 @@ def test_missing_api_key_raises_configuration_error_without_http_request():
             geocode_location("Chicago, IL")
 
     get.assert_not_called()
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_state_level_location_is_rejected_as_too_broad():
+    payload = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [-99.9018, 31.9686],
+                },
+                "properties": {
+                    "label": "Texas, USA",
+                    "layer": "region",
+                },
+            }
+        ],
+    }
+
+    with patch(
+        "trips.services.geocoding.httpx.get",
+        return_value=make_response(payload),
+    ):
+        with pytest.raises(LocationTooBroadError):
+            geocode_location("Texas, USA")
