@@ -111,7 +111,7 @@ trips/
 - `api/` owns HTTP concerns only: request validation, status codes, and public error payloads.
 - `application/` coordinates the complete trip-planning use case without knowing about DRF responses.
 - `services/geocoding.py` and `services/routing.py` isolate external HeiGIT/openrouteservice behavior and normalize upstream responses.
-- `services/route_locations.py` maps route duty-change positions to best-effort nearest city/state labels for ELD remarks. Reverse-geocoder failure falls back safely without failing trip planning.
+- `services/route_locations.py` maps route duty-change positions and daily midnight boundaries to best-effort nearest city/state labels for ELD remarks and each paper log's From/To fields. Reverse-geocoder failure falls back safely without failing trip planning.
 - Routing prefers the `driving-hgv` profile. Geocoded waypoints are first snapped directly to the selected road graph. If a city centroid is not within the public routing snap radius, the backend probes a bounded set of nearby candidate points and uses the nearest successful road snap. If HGV still reports an unroutable point, the backend retries once with `driving-car`. Upstream outages and server errors are never hidden by this fallback.
 - `services/hos.py` owns HOS scheduling and route-progress consumption.
 - `services/daily_logs.py` converts the generated schedule into complete 24-hour ELD logs.
