@@ -1,7 +1,10 @@
 from rest_framework import status
 from rest_framework.response import Response
 
-from trips.application.exceptions import TripLocationNotFoundError
+from trips.application.exceptions import (
+    TripLocationNotFoundError,
+    TripLocationTooBroadError,
+)
 from trips.services.daily_logs import DailyLogBuildError
 from trips.services.exceptions import (
     RoutingServiceNotConfiguredError,
@@ -11,6 +14,7 @@ from trips.services.hos import HosPlanningError
 
 CONTROLLED_TRIP_PLANNING_ERRORS = (
     TripLocationNotFoundError,
+    TripLocationTooBroadError,
     RoutingServiceNotConfiguredError,
     RoutingServiceUnavailableError,
     HosPlanningError,
@@ -27,6 +31,21 @@ def trip_planning_error_response(exc: Exception) -> Response:
                     "code": "location_not_found",
                     "field": exc.field,
                     "message": f"Could not resolve {exc.field.replace('_', ' ')}.",
+                }
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if isinstance(exc, TripLocationTooBroadError):
+        return Response(
+            {
+                "error": {
+                    "code": "location_too_broad",
+                    "field": exc.field,
+                    "message": (
+                        f"Use a city, street, or full address for "
+                        f"{exc.field.replace('_', ' ')}."
+                    ),
                 }
             },
             status=status.HTTP_400_BAD_REQUEST,
