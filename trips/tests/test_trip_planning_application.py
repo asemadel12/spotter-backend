@@ -4,9 +4,12 @@ from unittest.mock import call, patch
 
 import pytest
 
-from trips.application.exceptions import TripLocationNotFoundError
+from trips.application.exceptions import (
+    TripLocationNotFoundError,
+    TripLocationTooBroadError,
+)
 from trips.application.planning import plan_trip
-from trips.services.exceptions import LocationNotFoundError
+from trips.services.exceptions import LocationNotFoundError, LocationTooBroadError
 
 
 @pytest.fixture
@@ -195,4 +198,24 @@ def test_location_resolution_failure_is_promoted_to_application_error(
                 plan_trip(validated_trip)
 
     assert exc_info.value.field == failed_field
+    route_builder.assert_not_called()
+
+
+def test_coarse_location_resolution_is_promoted_to_field_error(
+    validated_trip,
+    locations,
+):
+    with patch(
+        "trips.application.planning.geocode_location",
+        side_effect=[
+            locations["current_location"],
+            locations["pickup_location"],
+            LocationTooBroadError(),
+        ],
+    ):
+        with patch("trips.application.planning.calculate_route") as route_builder:
+            with pytest.raises(TripLocationTooBroadError) as exc_info:
+                plan_trip(validated_trip)
+
+    assert exc_info.value.field == "dropoff_location"
     route_builder.assert_not_called()
