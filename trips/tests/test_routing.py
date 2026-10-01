@@ -624,3 +624,84 @@ def test_missing_direct_snap_searches_nearby_candidates(
         -96.7965,
         32.781,
     ]
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_nearby_search_exhaustion_keeps_original_coordinate_then_uses_profile_fallback(
+    resolved_locations,
+    route_payload,
+):
+    current, pickup, dropoff = resolved_locations
+
+    hgv_direct = httpx.Response(
+        200,
+        json={
+            "locations": [
+                {"location": [-87.6301, 41.8784]},
+                {"location": [-86.1584, 39.7687]},
+                None,
+            ]
+        },
+        request=httpx.Request("POST", HGV_SNAP_URL),
+    )
+    hgv_nearby_none = httpx.Response(
+        200,
+        json={"locations": [None] * 48},
+        request=httpx.Request("POST", HGV_SNAP_URL),
+    )
+    hgv_unroutable = httpx.Response(
+        404,
+        json={
+            "error": {
+                "code": 2010,
+                "message": "Could not find routable point within a radius of 350.0 meters.",
+            }
+        },
+        request=httpx.Request("POST", DIRECTIONS_URL),
+    )
+    car_direct = httpx.Response(
+        200,
+        json={
+            "locations": [
+                {"location": [-87.6302, 41.8785]},
+                {"location": [-86.1585, 39.7688]},
+                None,
+            ]
+        },
+        request=httpx.Request("POST", CAR_SNAP_URL),
+    )
+    car_nearby = httpx.Response(
+        200,
+        json={
+            "locations": [
+                None,
+                {"location": [-96.7968, 32.7800]},
+                *([None] * 46),
+            ]
+        },
+        request=httpx.Request("POST", CAR_SNAP_URL),
+    )
+    car_route = make_response(route_payload)
+
+    with patch(
+        "trips.services.routing.httpx.post",
+        side_effect=[
+            hgv_direct,
+            hgv_nearby_none,
+            hgv_unroutable,
+            car_direct,
+            car_nearby,
+            car_route,
+        ],
+    ) as post:
+        result = calculate_route(current, pickup, dropoff)
+
+    assert result["distance_meters"] == route_payload["features"][0]["properties"]["summary"]["distance"]
+    assert post.call_args_list[2].args == (DIRECTIONS_URL,)
+    assert post.call_args_list[3].args == (CAR_SNAP_URL,)
+    assert post.call_args_list[4].args == (CAR_SNAP_URL,)
+    assert post.call_args_list[5].args == (CAR_DIRECTIONS_URL,)
+    assert post.call_args_list[5].kwargs["json"]["coordinates"][2] == [
+        -96.7968,
+        32.78,
+    ]
