@@ -569,4 +569,4 @@ def test_city_centroid_can_be_snapped_with_wider_search_radius(
         calculate_route(current, pickup, dropoff)
 
     assert post.call_args_list[0].args == (HGV_SNAP_URL,)
-    assert post.call_args_list[0].kwargs["json"]["radius"] == 5000
+    assert post.call_args_list[0].kwargs["json"]["radius"] == 20000
