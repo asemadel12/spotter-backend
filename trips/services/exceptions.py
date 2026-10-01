@@ -12,3 +12,7 @@ class RoutingServiceUnavailableError(RoutingServiceError):
 
 class LocationNotFoundError(RoutingServiceError):
     """Raised when Pelias cannot resolve a location."""
+
+
+class LocationTooBroadError(RoutingServiceError):
+    """Raised when Pelias resolves a trip input only to a coarse area."""
