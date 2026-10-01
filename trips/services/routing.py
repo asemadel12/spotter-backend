@@ -14,7 +14,11 @@ DIRECTIONS_URL = (
     "driving-hgv/geojson"
 )
 SNAP_URL = "https://api.heigit.org/openrouteservice/v2/snap/driving-hgv/json"
-SNAP_RADIUS_METERS = 2000
+CAR_DIRECTIONS_URL = (
+    "https://api.heigit.org/openrouteservice/v2/directions/"
+    "driving-car/geojson"
+)
+SNAP_RADIUS_METERS = 350
 REQUEST_TIMEOUT = httpx.Timeout(20.0, connect=5.0)
 LEG_NAMES = (
     ("current_location", "pickup_location"),
@@ -35,21 +39,49 @@ def calculate_route(
     ]
     routable_coordinates = _snap_coordinates_for_hgv(coordinates, api_key)
 
+    payload = _request_route(
+        DIRECTIONS_URL,
+        routable_coordinates,
+        api_key,
+        allow_profile_fallback=True,
+    )
+    return _normalize_route(payload)
+
+
+def _request_route(
+    url: str,
+    coordinates: list[list[float]],
+    api_key: str,
+    *,
+    allow_profile_fallback: bool,
+) -> Any:
     try:
         response = httpx.post(
-            DIRECTIONS_URL,
-            json={"coordinates": routable_coordinates, "instructions": True},
+            url,
+            json={"coordinates": coordinates, "instructions": True},
             headers={"Authorization": api_key},
             timeout=REQUEST_TIMEOUT,
         )
-        response.raise_for_status()
-        payload = response.json()
-    except (httpx.TimeoutException, httpx.RequestError, httpx.HTTPStatusError) as exc:
-        raise RoutingServiceUnavailableError from exc
-    except ValueError as exc:
+    except (httpx.TimeoutException, httpx.RequestError) as exc:
         raise RoutingServiceUnavailableError from exc
 
-    return _normalize_route(payload)
+    if (
+        allow_profile_fallback
+        and response.status_code == 400
+        and url == DIRECTIONS_URL
+    ):
+        return _request_route(
+            CAR_DIRECTIONS_URL,
+            coordinates,
+            api_key,
+            allow_profile_fallback=False,
+        )
+
+    try:
+        response.raise_for_status()
+        return response.json()
+    except (httpx.HTTPStatusError, ValueError) as exc:
+        raise RoutingServiceUnavailableError from exc
 
 
 def _snap_coordinates_for_hgv(
