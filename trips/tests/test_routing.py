@@ -10,9 +10,9 @@ from trips.services.exceptions import (
 )
 from trips.services.routing import (
     CAR_DIRECTIONS_URL,
-    CAR_HGV_SNAP_URL,
+    CAR_SNAP_URL,
     DIRECTIONS_URL,
-    HGV_HGV_SNAP_URL,
+    HGV_SNAP_URL,
     SNAP_RADIUS_METERS,
     calculate_route,
 )
