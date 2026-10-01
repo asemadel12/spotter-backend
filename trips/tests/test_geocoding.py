@@ -375,3 +375,35 @@ def test_forward_geocode_does_not_treat_venue_name_as_city():
         result = geocode_location("Example Fire Station")
 
     assert "city_state" not in result
+
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_forward_locality_layer_can_use_name_as_city():
+    payload = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [-94.9027, 29.3838],
+                },
+                "properties": {
+                    "label": "Texas City, Texas, USA",
+                    "layer": "locality",
+                    "name": "Texas City",
+                    "region": "Texas",
+                    "region_a": "TX",
+                },
+            }
+        ],
+    }
+
+    with patch(
+        "trips.services.geocoding.httpx.get",
+        return_value=make_response(payload),
+    ):
+        result = geocode_location("Texas City, TX")
+
+    assert result["city_state"] == "Texas City, TX"
