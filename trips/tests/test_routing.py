@@ -10,9 +10,10 @@ from trips.services.exceptions import (
 )
 from trips.services.routing import (
     CAR_DIRECTIONS_URL,
+    CAR_HGV_SNAP_URL,
     DIRECTIONS_URL,
+    HGV_HGV_SNAP_URL,
     SNAP_RADIUS_METERS,
-    SNAP_URL,
     calculate_route,
 )
 
@@ -367,7 +368,7 @@ def test_route_uses_hgv_snapped_coordinates_when_available(
     snap_response = httpx.Response(
         200,
         json=snap_payload,
-        request=httpx.Request("POST", SNAP_URL),
+        request=httpx.Request("POST", HGV_SNAP_URL),
     )
     route_response = make_response(route_payload)
 
@@ -378,7 +379,7 @@ def test_route_uses_hgv_snapped_coordinates_when_available(
         calculate_route(current, pickup, dropoff)
 
     snap_call, directions_call = post.call_args_list
-    assert snap_call.args == (SNAP_URL,)
+    assert snap_call.args == (HGV_SNAP_URL,)
     assert snap_call.kwargs["json"] == {
         "locations": [
             [-87.6298, 41.8781],
@@ -407,7 +408,7 @@ def test_snap_failure_falls_back_to_original_coordinates(
     snap_failure = httpx.Response(
         503,
         json={"error": "snap unavailable"},
-        request=httpx.Request("POST", SNAP_URL),
+        request=httpx.Request("POST", HGV_SNAP_URL),
     )
     route_response = make_response(route_payload)
 
@@ -435,7 +436,7 @@ def test_hgv_unroutable_point_retries_once_with_driving_car(
     snap_failure = httpx.Response(
         503,
         json={"error": "snap unavailable"},
-        request=httpx.Request("POST", SNAP_URL),
+        request=httpx.Request("POST", HGV_SNAP_URL),
     )
     hgv_unroutable = httpx.Response(
         404,
@@ -447,22 +448,42 @@ def test_hgv_unroutable_point_retries_once_with_driving_car(
         },
         request=httpx.Request("POST", DIRECTIONS_URL),
     )
+    car_snap = httpx.Response(
+        200,
+        json={
+            "locations": [
+                {"location": [-87.6301, 41.8784]},
+                {"location": [-86.1584, 39.7687]},
+                {"location": [-96.7973, 32.7770]},
+            ]
+        },
+        request=httpx.Request("POST", CAR_SNAP_URL),
+    )
     car_route = make_response(route_payload)
 
     with patch(
         "trips.services.routing.httpx.post",
-        side_effect=[snap_failure, hgv_unroutable, car_route],
+        side_effect=[snap_failure, hgv_unroutable, car_snap, car_route],
     ) as post:
         result = calculate_route(current, pickup, dropoff)
 
     assert result["distance_meters"] == route_payload["features"][0]["properties"]["summary"]["distance"]
     assert post.call_args_list[1].args == (DIRECTIONS_URL,)
-    assert post.call_args_list[2].args == (CAR_DIRECTIONS_URL,)
+    assert post.call_args_list[2].args == (CAR_SNAP_URL,)
     assert post.call_args_list[2].kwargs["json"] == {
-        "coordinates": [
+        "locations": [
             [-87.6298, 41.8781],
             [-86.1581, 39.7684],
             [-96.797, 32.7767],
+        ],
+        "radius": SNAP_RADIUS_METERS,
+    }
+    assert post.call_args_list[3].args == (CAR_DIRECTIONS_URL,)
+    assert post.call_args_list[3].kwargs["json"] == {
+        "coordinates": [
+            [-87.6301, 41.8784],
+            [-86.1584, 39.7687],
+            [-96.7973, 32.777],
         ],
         "instructions": True,
     }
@@ -476,7 +497,7 @@ def test_hgv_server_error_does_not_fallback_to_driving_car(
     snap_failure = httpx.Response(
         503,
         json={"error": "snap unavailable"},
-        request=httpx.Request("POST", SNAP_URL),
+        request=httpx.Request("POST", HGV_SNAP_URL),
     )
     hgv_failure = httpx.Response(
         503,
@@ -503,7 +524,7 @@ def test_generic_hgv_404_does_not_trigger_profile_fallback(
     snap_failure = httpx.Response(
         503,
         json={"error": "snap unavailable"},
-        request=httpx.Request("POST", SNAP_URL),
+        request=httpx.Request("POST", HGV_SNAP_URL),
     )
     generic_not_found = httpx.Response(
         404,
@@ -520,3 +541,32 @@ def test_generic_hgv_404_does_not_trigger_profile_fallback(
 
     assert len(post.call_args_list) == 2
     assert post.call_args_list[1].args == (DIRECTIONS_URL,)
+
+
+@override_settings(ORS_API_KEY="test-api-key")
+def test_city_centroid_can_be_snapped_with_wider_search_radius(
+    resolved_locations,
+    route_payload,
+):
+    current, pickup, dropoff = resolved_locations
+    wide_snap = httpx.Response(
+        200,
+        json={
+            "locations": [
+                {"location": [-87.6299, 41.8782]},
+                {"location": [-86.1582, 39.7685]},
+                {"location": [-96.7971, 32.7768]},
+            ]
+        },
+        request=httpx.Request("POST", HGV_SNAP_URL),
+    )
+    route_response = make_response(route_payload)
+
+    with patch(
+        "trips.services.routing.httpx.post",
+        side_effect=[wide_snap, route_response],
+    ) as post:
+        calculate_route(current, pickup, dropoff)
+
+    assert post.call_args_list[0].args == (HGV_SNAP_URL,)
+    assert post.call_args_list[0].kwargs["json"]["radius"] == 5000
