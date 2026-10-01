@@ -488,9 +488,13 @@ def _location_label(
     location = locations.get(location_ref)
     if not isinstance(location, Mapping):
         return None
+    city_state = location.get("city_state")
+    if isinstance(city_state, str) and city_state.strip():
+        return city_state.strip()
+
     label = location.get("label")
     if isinstance(label, str) and label.strip():
-        return label
+        return label.strip()
     return None
 
 
