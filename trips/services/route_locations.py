@@ -67,16 +67,8 @@ def enrich_schedule_event_locations(
                 last_route_label = label
 
         if event_type == "DRIVING" and "location_label" not in event:
-            route_progress = event.get("route_progress")
-            leg_index = (
-                route_progress.get("leg_index")
-                if isinstance(route_progress, Mapping)
-                else None
-            )
             if cumulative_distance <= 0:
                 label = _known_location_label(locations, "current_location")
-            elif leg_index == 1 and location_ref == "pickup_location_to_dropoff_location":
-                label = _known_location_label(locations, "pickup_location")
             else:
                 label = last_route_label
             if label:
